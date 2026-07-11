@@ -110,3 +110,16 @@ class Completion:
             0,
         )
 
+    @classmethod
+    def unpack(cls, value: bytes) -> Completion:
+        if len(value) != COMPLETION_SIZE:
+            raise ValueError(f"completion must be {COMPLETION_SIZE} bytes")
+        fields = _COMPLETION.unpack(value)
+        return cls(
+            result=fields[0],
+            user_data=fields[1],
+            sq_head=fields[2],
+            cid=fields[3],
+            status=Status(fields[4]),
+            flags=fields[5],
+        )

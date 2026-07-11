@@ -1,17 +1,18 @@
 # Linux Driver Scaffold
 
-This directory defines the lifecycle and data structures for a future managed NAND PCIe
-controller. It intentionally does not register a block disk yet: doing so before the ABI,
-DMA rings, interrupts, timeout, and reset behavior exist would expose an unsafe fake data
-path.
+This directory defines the lifecycle and data structures for a managed NAND PCIe
+controller. Probe now validates ABI v0.1, allocates coherent admin SQ/CQ rings, configures
+MSI-X, programs BAR registers, enables the controller, and waits for readiness. It
+intentionally does not register a block disk until identify/admin submission, completion
+draining, timeout, and reset behavior are complete.
 
 ## Intended implementation order
 
 1. Extend the frozen ABI v0.1 in `openflash_abi.h` only through its documented versioning
    rules; add compile-time layout checks when wiring it into a Linux build.
-2. Allocate coherent submission/completion rings, program DMA addresses, and negotiate
-   queue count/depth through the admin queue.
-3. Allocate MSI-X vectors and map each I/O queue to a completion handler/NAPI-like poll.
+2. Submit identify over the implemented coherent admin rings, validate capacity/features,
+   and add completion draining with phase tags.
+3. Expand implemented MSI-X setup to one vector per I/O queue and a completion poller.
 4. Add a `blk_mq_tag_set`; translate requests without allocation or sleeping in `queue_rq`.
 5. Implement flush/FUA/discard, timeout/abort, controller reset, and in-flight replay rules.
 6. Add debugfs/sysfs telemetry only after stable counters are part of the ABI.

@@ -1,4 +1,4 @@
-from openflash.abi import COMMAND_SIZE, Command, Opcode
+from openflash.abi import COMMAND_SIZE, COMPLETION_SIZE, Command, Completion, Opcode, Status
 
 
 def test_command_binary_layout_round_trip() -> None:
@@ -16,3 +16,9 @@ def test_command_binary_layout_round_trip() -> None:
     assert len(packed) == COMMAND_SIZE
     assert Command.unpack(packed) == command
 
+
+def test_completion_binary_layout_round_trip() -> None:
+    completion = Completion(2, 0xCAFE, 7, 3, Status.SUCCESS, flags=1)
+    packed = completion.pack()
+    assert len(packed) == COMPLETION_SIZE
+    assert Completion.unpack(packed) == completion

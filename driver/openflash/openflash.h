@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: Apache-2.0 */
+/* SPDX-License-Identifier: GPL-2.0-only */
 #ifndef _OPENFLASH_H_
 #define _OPENFLASH_H_
 
@@ -13,6 +13,7 @@
 #define OPENFLASH_DEFAULT_Q_DEPTH 128
 
 struct openflash_queue {
+	/* Serializes SQ descriptor writes and tail publication for this queue. */
 	spinlock_t sq_lock;
 	struct openflash_command *sq_cmds;
 	dma_addr_t sq_dma;
@@ -31,5 +32,8 @@ struct openflash_dev {
 	u16 nr_queues;
 	u16 queue_depth;
 };
+
+int openflash_setup_admin_queue(struct openflash_dev *ofdev);
+void openflash_teardown_admin_queue(struct openflash_dev *ofdev);
 
 #endif /* _OPENFLASH_H_ */

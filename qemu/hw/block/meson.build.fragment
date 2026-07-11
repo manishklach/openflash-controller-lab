@@ -1,0 +1,2 @@
+# Add alongside the other hw/block PCI devices in QEMU's hw/block/meson.build.
+system_ss.add(when: 'CONFIG_OPENFLASH', if_true: files('openflash.c'))

@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: Apache-2.0 */
+/* SPDX-License-Identifier: GPL-2.0-only */
 #ifndef _OPENFLASH_ABI_H_
 #define _OPENFLASH_ABI_H_
 

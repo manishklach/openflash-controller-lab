@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 #include <linux/dma-mapping.h>
 #include <linux/module.h>
 #include <linux/pci.h>
@@ -39,8 +39,14 @@ static int openflash_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	pci_set_master(pdev);
 	pci_set_drvdata(pdev, ofdev);
 
-	/* Queue negotiation, MSI-X, blk-mq, reset, and health reporting are milestone 2. */
-	dev_info(&pdev->dev, "ABI 0x%08x scaffold initialized; data path disabled\n",
+	ret = openflash_setup_admin_queue(ofdev);
+	if (ret) {
+		pci_clear_master(pdev);
+		return dev_err_probe(&pdev->dev, ret, "failed to start admin queue\n");
+	}
+
+	/* blk-mq registration waits for identify and admin command submission. */
+	dev_info(&pdev->dev, "ABI 0x%08x admin queue ready; block data path disabled\n",
 		 OPENFLASH_ABI_VERSION);
 	return 0;
 }
@@ -50,8 +56,10 @@ static void openflash_remove(struct pci_dev *pdev)
 	struct openflash_dev *ofdev = pci_get_drvdata(pdev);
 
 	/* Future implementation must quiesce and drain queues before resources unwind. */
-	if (ofdev)
+	if (ofdev) {
+		openflash_teardown_admin_queue(ofdev);
 		pci_clear_master(pdev);
+	}
 }
 
 static const struct pci_device_id openflash_id_table[] = {
@@ -70,4 +78,4 @@ module_pci_driver(openflash_driver);
 
 MODULE_AUTHOR("OpenFlash contributors");
 MODULE_DESCRIPTION("OpenFlash experimental managed NAND controller scaffold");
-MODULE_LICENSE("Apache-2.0");
+MODULE_LICENSE("GPL");

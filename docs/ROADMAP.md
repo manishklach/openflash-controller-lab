@@ -30,10 +30,11 @@ serialization.
 
 Deliverables:
 
-- [x] PCI lifecycle and queue data structures scaffold;
+- [x] PCI lifecycle, coherent admin rings, BAR programming, MSI-X, and ready handshake;
 - [x] versioned register/descriptor specification with endian and alignment rules;
 - [x] userspace ABI reference device with read/write/flush/discard and fault injection;
-- [ ] QEMU PCI model with admin queue, I/O queues, MSI-X, DMA, and fault injection;
+- [ ] QEMU PCI model: BAR0, one DMA queue, MSI-X, and RAM I/O implemented; multiple I/O
+  queues, QTests, persistent backing, and fault injection remain;
 - [ ] `blk-mq` request path with one queue per CPU/MSI-X vector group;
 - [ ] timeout, abort, reset, hot-unplug, suspend/resume, and telemetry paths;
 - [ ] discard, flush/FUA, and durability semantics;

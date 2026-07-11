@@ -20,6 +20,8 @@ surface that will be connected to emulated hardware in the next milestone.
 - Throughput, IOPS, utilization, and p50/p95/p99 latency reporting.
 - Linux PCI driver scaffold with DMA mask negotiation, queue contracts, and lifecycle.
 - Executable ABI v0.1 reference device with durability and fault-injection behavior.
+- Phase-tagged SQ/CQ transport and an initial QEMU PCI MMIO/DMA/MSI-X device.
+- Linux admin-ring allocation, BAR programming, MSI-X setup, and ready handshake.
 - Unit tests, linting, CI, fio profiles, architecture notes, and milestone gates.
 
 ## Architecture
@@ -87,4 +89,5 @@ wear-leveling, ECC characterization, secure firmware update, and exhaustive faul
 
 ## License
 
-Apache-2.0.
+The simulator, tools, documentation, and QEMU model are Apache-2.0. The Linux kernel
+driver subtree is GPL-2.0-only so it can use the kernel's required GPL-only interfaces.
