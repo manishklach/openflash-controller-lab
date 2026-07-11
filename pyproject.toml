@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openflash-controller-lab"
-version = "0.1.0"
+version = "0.3.0"
 description = "Executable NAND controller, scheduler, and FTL architecture laboratory"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -27,4 +27,3 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-
