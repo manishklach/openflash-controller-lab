@@ -2,6 +2,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/module.h>
 #include <linux/pci.h>
+#include <linux/io.h>
 
 #include "openflash.h"
 
@@ -33,11 +34,13 @@ static int openflash_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	ofdev->pdev = pdev;
 	ofdev->bar = pcim_iomap_table(pdev)[0];
 	ofdev->queue_depth = OPENFLASH_DEFAULT_Q_DEPTH;
+	if (readl(ofdev->bar + OPENFLASH_REG_ABI_VERSION) != OPENFLASH_ABI_VERSION)
+		return dev_err_probe(&pdev->dev, -EPROTO, "unsupported controller ABI\n");
 	pci_set_master(pdev);
 	pci_set_drvdata(pdev, ofdev);
 
 	/* Queue negotiation, MSI-X, blk-mq, reset, and health reporting are milestone 2. */
-	dev_info(&pdev->dev, "ABI %u scaffold initialized; data path disabled\n",
+	dev_info(&pdev->dev, "ABI 0x%08x scaffold initialized; data path disabled\n",
 		 OPENFLASH_ABI_VERSION);
 	return 0;
 }
@@ -68,4 +71,3 @@ module_pci_driver(openflash_driver);
 MODULE_AUTHOR("OpenFlash contributors");
 MODULE_DESCRIPTION("OpenFlash experimental managed NAND controller scaffold");
 MODULE_LICENSE("Apache-2.0");
-

@@ -1,0 +1,4 @@
+{"request_id": 0, "operation": "write", "lpn": 100, "pages": 1, "arrival_us": 0.0}
+{"request_id": 1, "operation": "write", "lpn": 101, "pages": 1, "arrival_us": 2.0}
+{"request_id": 2, "operation": "read", "lpn": 100, "pages": 1, "arrival_us": 10.0}
+{"request_id": 3, "operation": "read", "lpn": 101, "pages": 1, "arrival_us": 12.0}

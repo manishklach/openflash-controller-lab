@@ -13,10 +13,13 @@ surface that will be connected to emulated hardware in the next milestone.
 
 - Discrete-event NAND timing model with shared channels and independent dies.
 - Page-mapped FTL with deterministic channel/die striping and invalidation tracking.
+- Live-page garbage collection with erase-count and write-amplification telemetry.
+- Seeded latency distributions, wear-sensitive ECC errors, retries, and failure counts.
 - FIFO and bounded read-priority schedulers.
-- Reproducible synthetic mixed read/write workloads.
+- Reproducible synthetic workloads and JSONL trace replay.
 - Throughput, IOPS, utilization, and p50/p95/p99 latency reporting.
 - Linux PCI driver scaffold with DMA mask negotiation, queue contracts, and lifecycle.
+- Executable ABI v0.1 reference device with durability and fault-injection behavior.
 - Unit tests, linting, CI, fio profiles, architecture notes, and milestone gates.
 
 ## Architecture
@@ -44,6 +47,7 @@ python -m venv .venv
 python -m pip install -e ".[dev]"
 python -m pytest -q
 python -m openflash.cli compare --requests 10000
+python -m openflash.cli replay examples/mixed-trace.jsonl --json
 ```
 
 Example output:
@@ -71,8 +75,9 @@ python -m openflash.cli run --policy read-priority --requests 50000 --json
    firmware, add ECC and GC, then map queue/channel engines to FPGA RTL. Exit gate:
    sustained bandwidth, bounded p99 latency, recovery correctness, and endurance targets.
 
-See [Architecture](docs/ARCHITECTURE.md), [implementation roadmap](docs/ROADMAP.md), and
-[Linux driver notes](driver/openflash/README.md) for detailed acceptance criteria.
+See [Architecture](docs/ARCHITECTURE.md), [ABI v0.1](docs/ABI.md),
+[implementation roadmap](docs/ROADMAP.md), and [Linux driver notes](driver/openflash/README.md)
+for detailed acceptance criteria.
 
 ## Safety and scope
 

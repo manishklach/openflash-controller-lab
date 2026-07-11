@@ -7,6 +7,7 @@ from dataclasses import asdict
 
 from .model import ControllerConfig, IORequest, Operation
 from .simulator import SimulationResult, Simulator
+from .trace import load_jsonl_trace
 
 
 def generate_workload(
@@ -29,17 +30,22 @@ def generate_workload(
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="OpenFlash NAND controller simulator")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    for name in ("run", "compare"):
+    for name in ("run", "compare", "replay"):
         command = subparsers.add_parser(name)
-        command.add_argument("--requests", type=int, default=10_000)
-        command.add_argument("--read-ratio", type=float, default=0.7)
-        command.add_argument("--working-set-pages", type=int, default=65_536)
-        command.add_argument("--arrival-rate", type=float, default=0.5, help="requests per microsecond")
+        if name != "replay":
+            command.add_argument("--requests", type=int, default=10_000)
+            command.add_argument("--read-ratio", type=float, default=0.7)
+            command.add_argument("--working-set-pages", type=int, default=65_536)
+            command.add_argument(
+                "--arrival-rate", type=float, default=0.5, help="requests per microsecond"
+            )
+        else:
+            command.add_argument("trace", help="JSONL request trace")
         command.add_argument("--seed", type=int, default=7)
         command.add_argument("--channels", type=int, default=8)
         command.add_argument("--dies-per-channel", type=int, default=4)
         command.add_argument("--json", action="store_true")
-        if name == "run":
+        if name in ("run", "replay"):
             command.add_argument("--policy", choices=("fifo", "read-priority"), default="read-priority")
     return parser
 
@@ -57,11 +63,17 @@ def _print_result(result: SimulationResult, as_json: bool) -> None:
 
 def main() -> None:
     args = _parser().parse_args()
-    config = ControllerConfig(channels=args.channels, dies_per_channel=args.dies_per_channel)
-    requests = generate_workload(
-        args.requests, args.read_ratio, args.working_set_pages, args.seed, args.arrival_rate
+    config = ControllerConfig(
+        channels=args.channels, dies_per_channel=args.dies_per_channel, random_seed=args.seed
     )
-    policies = (args.policy,) if args.command == "run" else ("fifo", "read-priority")
+    requests = (
+        load_jsonl_trace(args.trace)
+        if args.command == "replay"
+        else generate_workload(
+            args.requests, args.read_ratio, args.working_set_pages, args.seed, args.arrival_rate
+        )
+    )
+    policies = (args.policy,) if args.command in ("run", "replay") else ("fifo", "read-priority")
     results = [Simulator(config, policy).run(requests) for policy in policies]
     if args.json and len(results) > 1:
         print(json.dumps([asdict(result) for result in results], indent=2))
@@ -72,4 +84,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

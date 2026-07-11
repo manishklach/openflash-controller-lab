@@ -23,6 +23,13 @@ class ControllerConfig:
     channel_transfer_gbps: float = 1.2
     queue_depth: int = 128
     read_burst_limit: int = 16
+    latency_sigma: float = 0.18
+    gc_low_watermark_blocks: int = 4
+    max_erase_cycles: int = 3_000
+    ecc_strength_bits: int = 80
+    base_raw_bit_errors: float = 2.0
+    read_retry_limit: int = 3
+    random_seed: int = 7
 
     def __post_init__(self) -> None:
         positive = (
@@ -37,6 +44,10 @@ class ControllerConfig:
             raise ValueError("geometry and queue values must be positive")
         if min(self.read_us, self.program_us, self.erase_us, self.channel_transfer_gbps) <= 0:
             raise ValueError("timing values must be positive")
+        if self.latency_sigma < 0 or self.gc_low_watermark_blocks < 0:
+            raise ValueError("latency sigma and GC watermark cannot be negative")
+        if min(self.max_erase_cycles, self.ecc_strength_bits) <= 0 or self.read_retry_limit < 0:
+            raise ValueError("endurance and ECC values are invalid")
 
     @property
     def dies(self) -> int:
@@ -62,4 +73,3 @@ class PhysicalPage:
     die: int
     block: int
     page: int
-

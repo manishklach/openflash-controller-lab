@@ -7,8 +7,8 @@ path.
 
 ## Intended implementation order
 
-1. Freeze `openflash_regs.h` and descriptor structs with ABI version, feature bits,
-   little-endian fields, cache-line alignment, and compile-time size checks.
+1. Extend the frozen ABI v0.1 in `openflash_abi.h` only through its documented versioning
+   rules; add compile-time layout checks when wiring it into a Linux build.
 2. Allocate coherent submission/completion rings, program DMA addresses, and negotiate
    queue count/depth through the admin queue.
 3. Allocate MSI-X vectors and map each I/O queue to a completion handler/NAPI-like poll.
@@ -32,4 +32,3 @@ replaced and its TODO paths are implemented.
 Use sparse, smatch, Coccinelle, lockdep, KASAN, DMA API debug, and fault injection. Test
 invalid descriptors, stale completions, queue wrap, interrupt loss, DMA errors, surprise
 remove, reset races, and power-state transitions before exposing persistent data.
-

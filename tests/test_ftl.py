@@ -27,3 +27,23 @@ def test_capacity_exhaustion_is_explicit() -> None:
     with pytest.raises(OutOfSpaceError):
         ftl.write(1)
 
+
+def test_gc_relocates_live_pages_and_reclaims_victim() -> None:
+    config = ControllerConfig(
+        channels=1,
+        dies_per_channel=1,
+        blocks_per_die=3,
+        pages_per_block=2,
+        gc_low_watermark_blocks=1,
+    )
+    ftl = PageMappingFTL(config)
+    ftl.write(0)
+    ftl.write(1)
+    ftl.write(0)
+    ftl.write(2)
+    assert ftl.needs_gc
+    result = ftl.garbage_collect()
+    assert result.pages_moved == 1
+    assert result.pages_reclaimed == 2
+    assert ftl.lookup(1) is not None
+    assert ftl.max_observed_erase_count == 1

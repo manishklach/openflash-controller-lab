@@ -12,8 +12,9 @@ Deliverables:
 - [x] FIFO and starvation-bounded read-priority policies;
 - [x] reproducible workloads and machine-readable metrics;
 - [ ] latency distributions from a real NAND part;
-- [ ] GC, over-provisioning, wear, multi-plane, cache-read, and ECC-retry models;
-- [ ] trace replay for fio/blktrace workloads.
+- [x] live-page GC, erase wear, latency variation, ECC retries, and telemetry;
+- [x] JSONL trace replay;
+- [ ] over-provisioning, multi-plane/cache-read eligibility, and blktrace conversion.
 
 Acceptance gates:
 
@@ -30,7 +31,8 @@ serialization.
 Deliverables:
 
 - [x] PCI lifecycle and queue data structures scaffold;
-- [ ] versioned register/descriptor specification with endian and alignment rules;
+- [x] versioned register/descriptor specification with endian and alignment rules;
+- [x] userspace ABI reference device with read/write/flush/discard and fault injection;
 - [ ] QEMU PCI model with admin queue, I/O queues, MSI-X, DMA, and fault injection;
 - [ ] `blk-mq` request path with one queue per CPU/MSI-X vector group;
 - [ ] timeout, abort, reset, hot-unplug, suspend/resume, and telemetry paths;
@@ -79,4 +81,3 @@ Acceptance gates:
 | 7-8 | Add timeout/reset/fault injection and durability tests. |
 | 9-10 | Profile locks, CPU/request, queue scaling, and scheduler variants. |
 | 11-12 | Freeze FPGA requirements and implement the first channel-engine testbench. |
-
