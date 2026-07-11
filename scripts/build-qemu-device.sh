@@ -23,7 +23,7 @@ cp "${REPO_ROOT}/qemu/tests/qtest/openflash-test.c" \
     "${SOURCE}/tests/qtest/openflash-test.c"
 cat "${REPO_ROOT}/qemu/hw/block/Kconfig.openflash" >> "${SOURCE}/hw/block/Kconfig"
 cat "${REPO_ROOT}/qemu/hw/block/meson.build.fragment" >> "${SOURCE}/hw/block/meson.build"
-sed -i "/^qtest_executables = {}/i qtests_i386 += ['openflash-test']" \
+sed -i "/^qtests_x86_64 = qtests_i386/i qtests_i386 += ['openflash-test']" \
     "${SOURCE}/tests/qtest/meson.build"
 
 cd "${SOURCE}"
