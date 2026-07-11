@@ -11,8 +11,8 @@ draining, timeout, and reset behavior are complete.
 
 1. Extend the frozen ABI v0.1 in `openflash_abi.h` only through its documented versioning
    rules; add compile-time layout checks when wiring it into a Linux build.
-2. Expand the implemented synchronous identify path into generic admin command submission,
-   identify feature parsing, and asynchronous completion draining.
+2. Expand the implemented serialized generic admin command path with identify feature
+   parsing and asynchronous interrupt-driven completion draining.
 3. Expand implemented MSI-X setup to one vector per I/O queue and a completion poller.
 4. Add a `blk_mq_tag_set`; translate requests without allocation or sleeping in `queue_rq`.
 5. Implement flush/FUA/discard, timeout/abort, controller reset, and in-flight replay rules.

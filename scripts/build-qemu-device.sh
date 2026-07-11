@@ -19,8 +19,12 @@ echo "${QEMU_SHA256}  ${ARCHIVE}" | sha256sum --check --status
 rm -rf "${SOURCE}"
 tar -xf "${ARCHIVE}" -C "${WORK_ROOT}"
 cp "${REPO_ROOT}/qemu/hw/block/openflash.c" "${SOURCE}/hw/block/openflash.c"
+cp "${REPO_ROOT}/qemu/tests/qtest/openflash-test.c" \
+    "${SOURCE}/tests/qtest/openflash-test.c"
 cat "${REPO_ROOT}/qemu/hw/block/Kconfig.openflash" >> "${SOURCE}/hw/block/Kconfig"
 cat "${REPO_ROOT}/qemu/hw/block/meson.build.fragment" >> "${SOURCE}/hw/block/meson.build"
+sed -i "/^qtest_executables = {}/i qtests_i386 += ['openflash-test']" \
+    "${SOURCE}/tests/qtest/meson.build"
 
 cd "${SOURCE}"
 ./configure \
@@ -28,5 +32,6 @@ cd "${SOURCE}"
     --disable-docs \
     --disable-werror
 ninja -C build qemu-system-x86_64
+meson test -C build --print-errorlogs qtest-x86_64/openflash-test
 build/qemu-system-x86_64 --version
 build/qemu-system-x86_64 -device help | grep -F 'openflash'

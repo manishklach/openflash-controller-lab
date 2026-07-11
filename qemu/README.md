@@ -43,10 +43,12 @@ in an isolated compatibility commit.
 - Identify, read, write, flush, and discard commands.
 - LBA and command-field validation.
 - One MSI-X vector and resettable queue state.
+- QTests for PCI discovery, ABI/capabilities, lifecycle/reset, queue registers, and invalid
+  queue depth handling.
 
 ## Required before persistent-data testing
 
-- QTest register, DMA, malformed-command, queue-wrap, and reset cases.
+- QTest DMA command execution, malformed-command, queue-wrap, and MSI-X delivery cases.
 - Separate admin and per-CPU I/O queue creation/deletion.
 - File-backed storage with flush/FUA and migration semantics.
 - DMA error handling, interrupt masking/coalescing, and explicit fault injection.

@@ -34,7 +34,9 @@ Deliverables:
 - [x] versioned register/descriptor specification with endian and alignment rules;
 - [x] userspace ABI reference device with read/write/flush/discard and fault injection;
 - [x] QEMU 11.0.2 pinned build with BAR0, one DMA queue, MSI-X, and RAM I/O;
+- [x] QTests for discovery, ABI/capabilities, enable/reset, and queue register validation;
 - [x] synchronous Linux identify command with phase validation and capacity discovery;
+- [x] reusable serialized admin submission with CID checks and ring/phase wrap handling;
 - [ ] multiple QEMU I/O queues, QTests, persistent backing, and fault injection;
 - [ ] `blk-mq` request path with one queue per CPU/MSI-X vector group;
 - [ ] timeout, abort, reset, hot-unplug, suspend/resume, and telemetry paths;

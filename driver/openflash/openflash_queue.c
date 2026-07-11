@@ -34,6 +34,7 @@ int openflash_setup_admin_queue(struct openflash_dev *ofdev)
 	queue->depth = ofdev->queue_depth;
 	queue->cq_phase = 1;
 	spin_lock_init(&queue->sq_lock);
+	mutex_init(&queue->admin_lock);
 
 	sq_size = queue->depth * sizeof(*queue->sq_cmds);
 	cq_size = queue->depth * sizeof(*queue->cqes);
@@ -85,23 +86,33 @@ free_sq:
 	return ret;
 }
 
-int openflash_admin_identify(struct openflash_dev *ofdev)
+static int openflash_admin_command(struct openflash_dev *ofdev,
+				   struct openflash_command *cmd, u64 *result)
 {
 	struct openflash_queue *queue = &ofdev->queues[0];
-	struct openflash_command *cmd = &queue->sq_cmds[0];
-	struct openflash_completion *cqe = &queue->cqes[0];
+	struct openflash_completion *cqe;
 	unsigned long timeout = jiffies + msecs_to_jiffies(500);
+	u16 cq_slot;
 	u16 flags;
+	u16 cid;
+	u16 sq_slot;
 	u16 status;
+	int ret = 0;
 
-	memset(cmd, 0, sizeof(*cmd));
-	cmd->opcode = OPENFLASH_ADMIN_IDENTIFY;
+	mutex_lock(&queue->admin_lock);
+	sq_slot = queue->sq_tail;
+	cq_slot = queue->cq_head;
+	cqe = &queue->cqes[cq_slot];
+	cid = ++queue->next_cid;
+	if (!cid)
+		cid = ++queue->next_cid;
 	cmd->qid = cpu_to_le16(queue->qid);
-	cmd->cid = cpu_to_le16(1);
+	cmd->cid = cpu_to_le16(cid);
+	memcpy(&queue->sq_cmds[sq_slot], cmd, sizeof(*cmd));
 
 	/* The command must be globally visible before publishing the new SQ tail. */
 	dma_wmb();
-	queue->sq_tail = 1;
+	queue->sq_tail = (queue->sq_tail + 1) % queue->depth;
 	writel(queue->sq_tail, ofdev->bar + OPENFLASH_SQ_TAIL_DB(queue->qid));
 
 	do {
@@ -110,20 +121,48 @@ int openflash_admin_identify(struct openflash_dev *ofdev)
 			break;
 		usleep_range(50, 100);
 	} while (time_before(jiffies, timeout));
-	if ((flags & OPENFLASH_CQE_PHASE) != queue->cq_phase)
-		return -ETIMEDOUT;
+	if ((flags & OPENFLASH_CQE_PHASE) != queue->cq_phase) {
+		ret = -ETIMEDOUT;
+		goto unlock;
+	}
 
 	/* Phase ownership transfers every completion field to the host. */
 	dma_rmb();
+	if (le16_to_cpu(cqe->cid) != cid) {
+		ret = -EIO;
+		goto unlock;
+	}
 	status = le16_to_cpu(cqe->status);
-	if (status != OPENFLASH_SC_SUCCESS)
-		return -EIO;
-	ofdev->capacity_blocks = le64_to_cpu(cqe->result);
-	if (!ofdev->capacity_blocks)
-		return -ENODEV;
+	if (status != OPENFLASH_SC_SUCCESS) {
+		ret = -EIO;
+		goto unlock;
+	}
+	if (result)
+		*result = le64_to_cpu(cqe->result);
 
-	queue->cq_head = 1;
+	queue->cq_head = (queue->cq_head + 1) % queue->depth;
+	if (!queue->cq_head)
+		queue->cq_phase ^= OPENFLASH_CQE_PHASE;
 	writel(queue->cq_head, ofdev->bar + OPENFLASH_CQ_HEAD_DB(queue->qid));
+unlock:
+	mutex_unlock(&queue->admin_lock);
+	return ret;
+}
+
+int openflash_admin_identify(struct openflash_dev *ofdev)
+{
+	struct openflash_command cmd = {
+		.opcode = OPENFLASH_ADMIN_IDENTIFY,
+	};
+	u64 capacity;
+	int ret;
+
+	ret = openflash_admin_command(ofdev, &cmd, &capacity);
+	if (ret)
+		return ret;
+	if (!capacity)
+		return -ENODEV;
+	ofdev->capacity_blocks = capacity;
 	return 0;
 }
 

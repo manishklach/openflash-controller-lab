@@ -9,6 +9,8 @@ for public milestones while the hardware ABI is versioned independently.
 
 - Reproducible, checksum-verified QEMU 11.0.2 build in GitHub Actions.
 - Linux synchronous identify submission, phase-tag validation, and capacity discovery.
+- Reusable Linux admin command submission with CIDs and SQ/CQ wrap handling.
+- QTests for PCI discovery, lifecycle/reset, capabilities, and queue register validation.
 
 ## [0.3.0] - 2026-07-11
 

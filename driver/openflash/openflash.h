@@ -3,6 +3,7 @@
 #define _OPENFLASH_H_
 
 #include <linux/pci.h>
+#include <linux/mutex.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
 
@@ -15,6 +16,8 @@
 struct openflash_queue {
 	/* Serializes SQ descriptor writes and tail publication for this queue. */
 	spinlock_t sq_lock;
+	/* Admin commands may sleep while waiting for their phase-tagged completion. */
+	struct mutex admin_lock;
 	struct openflash_command *sq_cmds;
 	dma_addr_t sq_dma;
 	struct openflash_completion *cqes;
@@ -24,6 +27,7 @@ struct openflash_queue {
 	u16 sq_tail;
 	u16 cq_head;
 	u8 cq_phase;
+	u16 next_cid;
 };
 
 struct openflash_dev {
