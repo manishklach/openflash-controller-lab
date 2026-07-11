@@ -44,10 +44,17 @@ static int openflash_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		pci_clear_master(pdev);
 		return dev_err_probe(&pdev->dev, ret, "failed to start admin queue\n");
 	}
+	ret = openflash_admin_identify(ofdev);
+	if (ret) {
+		openflash_teardown_admin_queue(ofdev);
+		pci_clear_master(pdev);
+		return dev_err_probe(&pdev->dev, ret, "identify command failed\n");
+	}
 
-	/* blk-mq registration waits for identify and admin command submission. */
-	dev_info(&pdev->dev, "ABI 0x%08x admin queue ready; block data path disabled\n",
-		 OPENFLASH_ABI_VERSION);
+	/* blk-mq registration waits for negotiated I/O queues and timeout handling. */
+	dev_info(&pdev->dev,
+		 "ABI 0x%08x admin queue ready, capacity %llu blocks; block path disabled\n",
+		 OPENFLASH_ABI_VERSION, ofdev->capacity_blocks);
 	return 0;
 }
 

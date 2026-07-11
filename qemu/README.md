@@ -5,14 +5,25 @@ DMA-backed submission/completion rings, MSI-X notification, and a sparse-purpose
 RAM backing store. It currently uses the admin queue for identify and data-path smoke
 testing; multiple I/O queue creation and persistent image backing are the next increment.
 
+The reproducible build is pinned to QEMU 11.0.2 and verifies the official tarball SHA-256
+before integration. GitHub Actions runs this build for every change.
+
+```bash
+scripts/build-qemu-device.sh
+```
+
+Set `OPENFLASH_QEMU_WORKDIR` to move the downloaded source/build cache from its default
+location under `/tmp`.
+
 ## Integrate into a QEMU checkout
 
-1. Copy `openflash.c` to `hw/block/openflash.c`.
-2. Append `Kconfig.openflash` to `hw/block/Kconfig` without its filename wrapper, or add
+1. Use QEMU 11.0.2, or expect to adapt internal APIs for another revision.
+2. Copy `openflash.c` to `hw/block/openflash.c`.
+3. Append `Kconfig.openflash` to `hw/block/Kconfig` without its filename wrapper, or add
    `source hw/block/Kconfig.openflash` from the parent Kconfig as appropriate for the QEMU
    revision.
-3. Append the line in `meson.build.fragment` to `hw/block/meson.build`.
-4. Configure and build QEMU for an x86_64 softmmu target.
+4. Append the line in `meson.build.fragment` to `hw/block/meson.build`.
+5. Configure and build QEMU for an x86_64 softmmu target.
 
 ```bash
 mkdir build && cd build

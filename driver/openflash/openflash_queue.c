@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/dma-mapping.h>
+#include <linux/delay.h>
 #include <linux/iopoll.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
@@ -31,6 +32,7 @@ int openflash_setup_admin_queue(struct openflash_dev *ofdev)
 		return -ENOMEM;
 	queue->qid = 0;
 	queue->depth = ofdev->queue_depth;
+	queue->cq_phase = 1;
 	spin_lock_init(&queue->sq_lock);
 
 	sq_size = queue->depth * sizeof(*queue->sq_cmds);
@@ -81,6 +83,48 @@ free_cq:
 free_sq:
 	dma_free_coherent(&pdev->dev, sq_size, queue->sq_cmds, queue->sq_dma);
 	return ret;
+}
+
+int openflash_admin_identify(struct openflash_dev *ofdev)
+{
+	struct openflash_queue *queue = &ofdev->queues[0];
+	struct openflash_command *cmd = &queue->sq_cmds[0];
+	struct openflash_completion *cqe = &queue->cqes[0];
+	unsigned long timeout = jiffies + msecs_to_jiffies(500);
+	u16 flags;
+	u16 status;
+
+	memset(cmd, 0, sizeof(*cmd));
+	cmd->opcode = OPENFLASH_ADMIN_IDENTIFY;
+	cmd->qid = cpu_to_le16(queue->qid);
+	cmd->cid = cpu_to_le16(1);
+
+	/* The command must be globally visible before publishing the new SQ tail. */
+	dma_wmb();
+	queue->sq_tail = 1;
+	writel(queue->sq_tail, ofdev->bar + OPENFLASH_SQ_TAIL_DB(queue->qid));
+
+	do {
+		flags = le16_to_cpu(READ_ONCE(cqe->flags));
+		if ((flags & OPENFLASH_CQE_PHASE) == queue->cq_phase)
+			break;
+		usleep_range(50, 100);
+	} while (time_before(jiffies, timeout));
+	if ((flags & OPENFLASH_CQE_PHASE) != queue->cq_phase)
+		return -ETIMEDOUT;
+
+	/* Phase ownership transfers every completion field to the host. */
+	dma_rmb();
+	status = le16_to_cpu(cqe->status);
+	if (status != OPENFLASH_SC_SUCCESS)
+		return -EIO;
+	ofdev->capacity_blocks = le64_to_cpu(cqe->result);
+	if (!ofdev->capacity_blocks)
+		return -ENODEV;
+
+	queue->cq_head = 1;
+	writel(queue->cq_head, ofdev->bar + OPENFLASH_CQ_HEAD_DB(queue->qid));
+	return 0;
 }
 
 void openflash_teardown_admin_queue(struct openflash_dev *ofdev)

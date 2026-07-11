@@ -85,6 +85,7 @@ struct OpenFlashState {
     uint32_t q_depth;
     uint16_t sq_head;
     uint16_t cq_tail;
+    uint16_t cq_head;
     uint8_t cq_phase;
     uint32_t control;
     uint32_t status;
@@ -98,6 +99,7 @@ static void openflash_reset(DeviceState *dev)
 
     s->sq_head = 0;
     s->cq_tail = 0;
+    s->cq_head = 0;
     s->cq_phase = 1;
     s->control = 0;
     s->status = 0;
@@ -218,6 +220,11 @@ static void openflash_mmio_write(void *opaque, hwaddr addr, uint64_t value,
         break;
     case OF_REG_DOORBELL_BASE:
         openflash_process_sq(s, value);
+        break;
+    case OF_REG_DOORBELL_BASE + 4:
+        if (value < s->q_depth) {
+            s->cq_head = value;
+        }
         break;
     default:
         qemu_log_mask(LOG_GUEST_ERROR, "openflash: bad MMIO write @0x%" HWADDR_PRIx "\n", addr);

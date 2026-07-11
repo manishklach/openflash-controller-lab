@@ -2,16 +2,17 @@
 
 This directory defines the lifecycle and data structures for a managed NAND PCIe
 controller. Probe now validates ABI v0.1, allocates coherent admin SQ/CQ rings, configures
-MSI-X, programs BAR registers, enables the controller, and waits for readiness. It
-intentionally does not register a block disk until identify/admin submission, completion
+MSI-X, programs BAR registers, enables the controller, waits for readiness, submits
+identify, validates its phase-tagged completion, and records capacity. It intentionally
+does not register a block disk until I/O queue negotiation, asynchronous completion
 draining, timeout, and reset behavior are complete.
 
 ## Intended implementation order
 
 1. Extend the frozen ABI v0.1 in `openflash_abi.h` only through its documented versioning
    rules; add compile-time layout checks when wiring it into a Linux build.
-2. Submit identify over the implemented coherent admin rings, validate capacity/features,
-   and add completion draining with phase tags.
+2. Expand the implemented synchronous identify path into generic admin command submission,
+   identify feature parsing, and asynchronous completion draining.
 3. Expand implemented MSI-X setup to one vector per I/O queue and a completion poller.
 4. Add a `blk_mq_tag_set`; translate requests without allocation or sleeping in `queue_rq`.
 5. Implement flush/FUA/discard, timeout/abort, controller reset, and in-flight replay rules.

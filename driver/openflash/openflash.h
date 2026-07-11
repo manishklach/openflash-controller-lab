@@ -23,6 +23,7 @@ struct openflash_queue {
 	u16 depth;
 	u16 sq_tail;
 	u16 cq_head;
+	u8 cq_phase;
 };
 
 struct openflash_dev {
@@ -31,9 +32,11 @@ struct openflash_dev {
 	struct openflash_queue *queues;
 	u16 nr_queues;
 	u16 queue_depth;
+	u64 capacity_blocks;
 };
 
 int openflash_setup_admin_queue(struct openflash_dev *ofdev);
+int openflash_admin_identify(struct openflash_dev *ofdev);
 void openflash_teardown_admin_queue(struct openflash_dev *ofdev);
 
 #endif /* _OPENFLASH_H_ */

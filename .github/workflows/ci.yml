@@ -20,3 +20,12 @@ jobs:
       - run: python -m ruff check src tests
       - run: python -m pytest -q
 
+  qemu-device:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install QEMU build dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build pkg-config libglib2.0-dev libpixman-1-dev
+      - name: Build OpenFlash in pinned QEMU
+        run: scripts/build-qemu-device.sh

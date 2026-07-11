@@ -42,8 +42,8 @@ and measurable exit gates.
 | ABI | Versioned v0.1 | 64-byte command/completion layout and durability rules | Identify payload and multi-queue negotiation |
 | Reference device | Runnable | Read/write/flush/FUA/discard, faults, power loss | Queue timeout and reset replay policies |
 | Queue engine | Runnable | SQ/CQ wraparound, phase tags, batching, interrupts | Multiple queues and interrupt coalescing |
-| QEMU device | Source implemented | BAR0, DMA, MSI-X, RAM-backed I/O | Pinned build, QTests, persistent backing |
-| Linux driver | Module builds | PCI probe, ABI check, coherent admin rings, MSI-X | Identify command, completion drain, `blk-mq` disk |
+| QEMU device | CI build pinned | QEMU 11.0.2, BAR0, DMA, MSI-X, RAM-backed I/O | QTests and persistent backing |
+| Linux driver | Module builds | PCI/admin rings, MSI-X, identify capacity | Generic completion drain and `blk-mq` disk |
 | Firmware/RTL | Planned | Requirements derived from the executable model | Channel-engine testbench and firmware scheduler |
 
 ## System architecture
@@ -318,7 +318,7 @@ Detailed deliverables and quantitative gates are maintained in
 - GC media cost is conservatively charged but not yet scheduled per die.
 - The FTL mapping is volatile and has no recovery journal.
 - QEMU currently has one queue and volatile RAM backing.
-- The QEMU source has not yet been compiled against a pinned upstream revision.
+- The QEMU build is pinned to 11.0.2; device QTests are not implemented yet.
 - The Linux interrupt handler does not yet drain completions.
 - No block disk is registered, so fio profiles are future acceptance tests.
 - There is no secure firmware/update path, power-loss protection model, or bad-block table.
