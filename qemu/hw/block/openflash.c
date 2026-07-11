@@ -8,10 +8,13 @@
  */
 #include "qemu/osdep.h"
 #include "hw/pci/pci.h"
+#include "hw/pci/pci_device.h"
 #include "hw/pci/msix.h"
+#include "hw/core/qdev-properties.h"
 #include "qapi/error.h"
 #include "qemu/log.h"
 #include "qemu/module.h"
+#include "qemu/units.h"
 #include "qom/object.h"
 
 #define TYPE_OPENFLASH "openflash"
