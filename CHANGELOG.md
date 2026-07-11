@@ -3,6 +3,13 @@
 All notable OpenFlash changes are recorded here. The project follows Semantic Versioning
 for public milestones while the hardware ABI is versioned independently.
 
+## [Unreleased]
+
+### Added
+
+- Reproducible, checksum-verified QEMU 11.0.2 build in GitHub Actions.
+- Linux synchronous identify submission, phase-tag validation, and capacity discovery.
+
 ## [0.3.0] - 2026-07-11
 
 ### Added

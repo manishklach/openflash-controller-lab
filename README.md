@@ -11,10 +11,10 @@ flash translation, media behavior, a binary queue ABI, emulated PCI hardware, an
 driver in one repository so performance ideas can be measured before they become RTL.
 
 The project is deliberately honest about maturity. The simulator, behavioral controller,
-and queue transport run today. The Linux module compiles and initializes an admin queue.
-The QEMU source implements the first MMIO/DMA path but still needs to be pinned, integrated,
-and tested against a specific upstream QEMU revision. OpenFlash is not yet suitable for
-storing valuable data or loading against unverified hardware.
+and queue transport run today. The Linux module compiles, initializes an admin queue, and
+completes identify. The QEMU source is integrated and compiled against pinned QEMU 11.0.2
+in CI. OpenFlash is not yet suitable for storing valuable data or loading against
+unverified hardware.
 
 ## Why OpenFlash exists
 
@@ -129,9 +129,9 @@ phase-bit wraparound, interrupt batching, and reset cleanup.
 
 [`qemu/hw/block/openflash.c`](qemu/hw/block/openflash.c) implements an initial in-tree QEMU
 PCI model with BAR0 register handling, guest DMA, one queue, one MSI-X vector, reset, and
-RAM-backed block operations. QEMU internal APIs are not a stable external plugin ABI, so
-the source must be compiled against a pinned revision before it is considered validated.
-See [`qemu/README.md`](qemu/README.md) for the integration procedure and remaining QTests.
+RAM-backed block operations. CI verifies the official QEMU 11.0.2 tarball checksum,
+integrates the source, builds `qemu-system-x86_64`, and checks device registration. See
+[`qemu/README.md`](qemu/README.md) for the procedure and remaining QTests.
 
 ### Linux driver
 
@@ -296,9 +296,9 @@ NAND part or a trusted device trace.
 
 In progress. The immediate sequence is:
 
-1. Pin and compile the QEMU model; add QTests for MMIO, DMA, wraparound, malformed commands,
-   reset, and MSI-X.
-2. Submit identify through the Linux admin ring and drain phase-tagged completions.
+1. Add QTests for MMIO, DMA, wraparound, malformed commands, reset, and MSI-X to the pinned
+   QEMU build.
+2. Generalize the working Linux identify path into asynchronous admin completion handling.
 3. Negotiate multiple I/O queues and map MSI-X vectors to queue-local completion handling.
 4. Register a `blk-mq` disk with read/write/flush/FUA/discard and timeout/reset behavior.
 5. Run fio verification and fault injection before persistent image backing is enabled.
