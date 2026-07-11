@@ -32,6 +32,7 @@ cd "${SOURCE}"
     --disable-docs \
     --disable-werror
 ninja -C build qemu-system-x86_64
-meson test -C build --print-errorlogs qtest-x86_64/openflash-test
+build/pyvenv/bin/meson test -C build --print-errorlogs \
+    qtest-x86_64/openflash-test
 build/qemu-system-x86_64 --version
 build/qemu-system-x86_64 -device help | grep -F 'openflash'
