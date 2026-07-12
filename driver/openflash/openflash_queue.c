@@ -255,16 +255,31 @@ int openflash_admin_identify(struct openflash_dev *ofdev)
 	return 0;
 }
 
-int openflash_setup_io_queue(struct openflash_dev *ofdev)
+static int openflash_create_io_queue(struct openflash_dev *ofdev)
 {
-	struct pci_dev *pdev = ofdev->pdev;
 	struct openflash_queue *queue = &ofdev->queues[1];
 	struct openflash_command cmd = {
 		.opcode = OPENFLASH_ADMIN_CREATE_IOQ,
 	};
+	u64 result;
+	int ret;
+
+	cmd.nblocks = cpu_to_le32(queue->depth);
+	cmd.control = cpu_to_le32(OPENFLASH_CREATE_IOQ_CONTROL(queue->qid, 1));
+	cmd.data_addr = cpu_to_le64(queue->sq_dma);
+	cmd.metadata_addr = cpu_to_le64(queue->cq_dma);
+	ret = openflash_admin_command(ofdev, &cmd, &result);
+	if (ret)
+		return ret;
+	return result == queue->qid ? 0 : -EPROTO;
+}
+
+int openflash_setup_io_queue(struct openflash_dev *ofdev)
+{
+	struct pci_dev *pdev = ofdev->pdev;
+	struct openflash_queue *queue = &ofdev->queues[1];
 	size_t cq_size;
 	size_t sq_size;
-	u64 result;
 	u16 tag;
 	int ret;
 
@@ -301,17 +316,9 @@ int openflash_setup_io_queue(struct openflash_dev *ofdev)
 	if (ret)
 		goto free_sgl;
 
-	cmd.nblocks = cpu_to_le32(queue->depth);
-	cmd.control = cpu_to_le32(OPENFLASH_CREATE_IOQ_CONTROL(queue->qid, 1));
-	cmd.data_addr = cpu_to_le64(queue->sq_dma);
-	cmd.metadata_addr = cpu_to_le64(queue->cq_dma);
-	ret = openflash_admin_command(ofdev, &cmd, &result);
+	ret = openflash_create_io_queue(ofdev);
 	if (ret)
 		goto free_irq;
-	if (result != queue->qid) {
-		ret = -EPROTO;
-		goto free_irq;
-	}
 	ofdev->nr_queues = 2;
 	return 0;
 
@@ -328,6 +335,41 @@ free_cq:
 free_sq:
 	dma_free_coherent(&pdev->dev, sq_size, queue->sq_cmds, queue->sq_dma);
 	return ret;
+}
+
+int openflash_reset_controller(struct openflash_dev *ofdev)
+{
+	struct openflash_queue *admin = &ofdev->queues[0];
+	struct openflash_queue *io = &ofdev->queues[1];
+	u32 status;
+	int ret;
+
+	/* Reset removes controller queue ownership; host DMA storage stays valid. */
+	memset(admin->sq_cmds, 0, admin->depth * sizeof(*admin->sq_cmds));
+	memset(admin->cqes, 0, admin->depth * sizeof(*admin->cqes));
+	memset(io->sq_cmds, 0, io->depth * sizeof(*io->sq_cmds));
+	memset(io->cqes, 0, io->depth * sizeof(*io->cqes));
+	admin->sq_tail = 0;
+	admin->cq_head = 0;
+	admin->cq_phase = 1;
+	io->sq_tail = 0;
+	io->cq_head = 0;
+	io->cq_phase = 1;
+	writel(OPENFLASH_CTRL_RESET, ofdev->bar + OPENFLASH_REG_CONTROL);
+	readl(ofdev->bar + OPENFLASH_REG_STATUS);
+	writel(lower_32_bits(admin->sq_dma), ofdev->bar + OPENFLASH_REG_ADMIN_SQ_LO);
+	writel(upper_32_bits(admin->sq_dma), ofdev->bar + OPENFLASH_REG_ADMIN_SQ_HI);
+	writel(lower_32_bits(admin->cq_dma), ofdev->bar + OPENFLASH_REG_ADMIN_CQ_LO);
+	writel(upper_32_bits(admin->cq_dma), ofdev->bar + OPENFLASH_REG_ADMIN_CQ_HI);
+	writel(admin->depth, ofdev->bar + OPENFLASH_REG_ADMIN_QSIZE);
+	/* Publish cleared rings and DMA addresses before re-enabling controller fetches. */
+	wmb();
+	writel(OPENFLASH_CTRL_ENABLE, ofdev->bar + OPENFLASH_REG_CONTROL);
+	ret = readl_poll_timeout(ofdev->bar + OPENFLASH_REG_STATUS, status,
+				 status & OPENFLASH_STATUS_READY, 10, 500000);
+	if (ret)
+		return ret;
+	return openflash_create_io_queue(ofdev);
 }
 
 void openflash_teardown_io_queue(struct openflash_dev *ofdev)

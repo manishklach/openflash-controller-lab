@@ -42,7 +42,8 @@ Deliverables:
 - [x] first admin-created I/O queue with queue-local doorbells and MSI-X vector;
 - [x] one-queue `blk-mq` request path with up to 16 DMA scatter-gather segments;
 - [ ] scale `blk-mq` queues per CPU/MSI-X vector group;
-- [ ] timeout, abort, reset, hot-unplug, suspend/resume, and telemetry paths;
+- [x] timeout-driven reset that fails ambiguous I/O and recreates queue transport;
+- [ ] command abort, hot-unplug, suspend/resume, and telemetry paths;
 - [ ] discard, flush/FUA, and durability semantics;
 - [ ] KUnit tests and a QEMU integration test image.
 

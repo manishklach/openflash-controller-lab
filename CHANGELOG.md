@@ -17,6 +17,8 @@ for public milestones while the hardware ABI is versioned independently.
 - Linux `blk-mq` disk registration with tag-owned request completion.
 - ABI v0.2 scatter-gather lists with up to 16 DMA segments per I/O command.
 - QEMU SGL validation and a two-segment DMA read/write QTest.
+- Linux `blk-mq` timeout handling that freezes submissions, fails ambiguous I/O, resets
+  the controller, and recreates the admin-negotiated I/O queue.
 
 ## [0.3.0] - 2026-07-11
 

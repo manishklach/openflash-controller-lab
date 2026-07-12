@@ -13,6 +13,34 @@
 #define OPENFLASH_VENDOR_ID 0x1d1d
 #define OPENFLASH_DEVICE_ID 0xf15a
 
+static void openflash_reset_work(struct work_struct *work)
+{
+	struct openflash_dev *ofdev = container_of(work, struct openflash_dev,
+					     reset_work);
+	int ret;
+
+	if (!ofdev->disk)
+		goto done;
+	blk_mq_freeze_queue(ofdev->disk->queue);
+	/* A timed-out command may have reached media, so never replay it. */
+	openflash_fail_io_requests(ofdev, BLK_STS_TIMEOUT);
+	ret = openflash_reset_controller(ofdev);
+	if (ret)
+		dev_err(&ofdev->pdev->dev, "controller recovery failed: %d\n", ret);
+	blk_mq_unfreeze_queue(ofdev->disk->queue);
+done:
+	atomic_set(&ofdev->reset_pending, 0);
+}
+
+static enum blk_eh_timer_return openflash_timeout(struct request *rq)
+{
+	struct openflash_dev *ofdev = rq->q->queuedata;
+
+	if (atomic_cmpxchg(&ofdev->reset_pending, 0, 1) == 0)
+		schedule_work(&ofdev->reset_work);
+	return BLK_EH_DONE;
+}
+
 static blk_status_t openflash_queue_rq(struct blk_mq_hw_ctx *hctx,
 					const struct blk_mq_queue_data *bd)
 {
@@ -120,6 +148,7 @@ unmap:
 
 static const struct blk_mq_ops openflash_mq_ops = {
 	.queue_rq = openflash_queue_rq,
+	.timeout = openflash_timeout,
 };
 
 static const struct block_device_operations openflash_fops = {
@@ -208,6 +237,8 @@ static int openflash_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	ofdev->pdev = pdev;
 	ofdev->bar = pcim_iomap_table(pdev)[0];
 	ofdev->queue_depth = OPENFLASH_DEFAULT_Q_DEPTH;
+	INIT_WORK(&ofdev->reset_work, openflash_reset_work);
+	atomic_set(&ofdev->reset_pending, 0);
 	if (readl(ofdev->bar + OPENFLASH_REG_ABI_VERSION) != OPENFLASH_ABI_VERSION)
 		return dev_err_probe(&pdev->dev, -EPROTO, "unsupported controller ABI\n");
 	pci_set_master(pdev);
@@ -250,6 +281,7 @@ static void openflash_remove(struct pci_dev *pdev)
 
 	/* Future implementation must quiesce and drain queues before resources unwind. */
 	if (ofdev) {
+		cancel_work_sync(&ofdev->reset_work);
 		openflash_unregister_block_device(ofdev);
 		openflash_teardown_io_queue(ofdev);
 		openflash_teardown_admin_queue(ofdev);

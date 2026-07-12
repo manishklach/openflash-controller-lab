@@ -19,7 +19,8 @@ implemented. The normative C layout is `driver/openflash/openflash_abi.h`.
 2. Host allocates the admin SQ/CQ, writes addresses and depth, then sets `CTRL_ENABLE`.
 3. Device sets `STATUS_READY`; host identifies capacity, limits, and feature bits.
 4. Admin commands create I/O queue pairs and associate each with an MSI-X vector.
-5. On timeout, the host first aborts; if progress cannot be proved, it resets the device.
+5. On timeout, the host fails ambiguous commands and resets the device. A future ABI
+   revision may add command abort when completion ownership can be proved.
 6. Reset clears queue ownership. The host must not replay writes unless durability status
    is known; upper layers receive an error when exactly-once execution cannot be proven.
 

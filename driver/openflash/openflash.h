@@ -9,6 +9,7 @@
 #include <linux/mutex.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
+#include <linux/workqueue.h>
 
 #include "openflash_abi.h"
 
@@ -59,11 +60,14 @@ struct openflash_dev {
 	u64 capacity_blocks;
 	struct blk_mq_tag_set tag_set;
 	struct gendisk *disk;
+	struct work_struct reset_work;
+	atomic_t reset_pending;
 };
 
 int openflash_setup_admin_queue(struct openflash_dev *ofdev);
 int openflash_admin_identify(struct openflash_dev *ofdev);
 int openflash_setup_io_queue(struct openflash_dev *ofdev);
+int openflash_reset_controller(struct openflash_dev *ofdev);
 void openflash_teardown_io_queue(struct openflash_dev *ofdev);
 void openflash_fail_io_requests(struct openflash_dev *ofdev, blk_status_t status);
 int openflash_register_block_device(struct openflash_dev *ofdev);

@@ -9,7 +9,7 @@ identifiers and completion processing maps status codes back to Linux block stat
 
 The initial block path accepts reads, writes, flushes, and discards at 4 KiB alignment. It
 accepts up to 16 DMA segments per request through ABI v0.2 scatter-gather descriptors. FUA
-semantics, timeout escalation, reset replay,
+semantics, command abort, reset replay,
 and persistent-media guarantees remain future work.
 
 ## Intended implementation order
@@ -19,7 +19,7 @@ and persistent-media guarantees remain future work.
 2. Expand the implemented interrupt-driven generic admin path with identify feature
    parsing, controller status mapping, abort, and reset escalation.
 3. Expand implemented MSI-X setup to one vector per I/O queue and a completion poller.
-4. Implement FUA, timeout/abort, controller reset, and in-flight replay rules.
+4. Implement FUA, command abort, and in-flight replay rules.
 5. Add debugfs/sysfs telemetry only after stable counters are part of the ABI.
 
 Build it inside a configured Linux tree by adding the directory to the relevant Kconfig
