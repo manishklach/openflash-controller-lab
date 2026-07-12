@@ -13,6 +13,7 @@ for public milestones while the hardware ABI is versioned independently.
 - QTests for PCI discovery, lifecycle/reset, capabilities, and queue register validation.
 - DMA QTests for identify, MSI-X, data integrity, discard, errors, and phase wrap.
 - Interrupt-driven Linux admin completion draining with timeout synchronization.
+- Admin-negotiated I/O queue with independent DMA rings and MSI-X vector 1.
 
 ## [0.3.0] - 2026-07-11
 

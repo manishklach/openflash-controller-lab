@@ -2,10 +2,10 @@
 
 This directory defines the lifecycle and data structures for a managed NAND PCIe
 controller. Probe now validates ABI v0.1, allocates coherent admin SQ/CQ rings, configures
-MSI-X, programs BAR registers, enables the controller, waits for readiness, submits
-identify, validates its phase-tagged completion, and records capacity. It intentionally
-does not register a block disk until I/O queue negotiation, asynchronous completion
-draining, timeout, and reset behavior are complete.
+MSI-X, programs BAR registers, enables the controller, waits for readiness, identifies
+capacity, then negotiates a dedicated I/O queue with its own DMA rings and MSI-X vector.
+It intentionally does not register a block disk until I/O request tracking, timeout, and
+reset behavior are complete.
 
 ## Intended implementation order
 

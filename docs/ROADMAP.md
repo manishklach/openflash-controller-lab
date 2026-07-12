@@ -39,6 +39,7 @@ Deliverables:
 - [x] reusable serialized admin submission with CID checks and ring/phase wrap handling;
 - [x] interrupt-driven admin CQ draining with timeout/IRQ synchronization;
 - [ ] multiple QEMU I/O queues, QTests, persistent backing, and fault injection;
+- [x] first admin-created I/O queue with queue-local doorbells and MSI-X vector;
 - [ ] `blk-mq` request path with one queue per CPU/MSI-X vector group;
 - [ ] timeout, abort, reset, hot-unplug, suspend/resume, and telemetry paths;
 - [ ] discard, flush/FUA, and durability semantics;

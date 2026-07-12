@@ -33,6 +33,7 @@
 #define OF_OP_WRITE              0x02
 #define OF_OP_DISCARD            0x04
 #define OF_ADMIN_IDENTIFY        0x80
+#define OF_ADMIN_CREATE_IOQ      0x81
 #define OF_SC_SUCCESS            0
 #define OF_SC_INVALID_OPCODE     1
 #define OF_BLOCK_SIZE            4096
@@ -40,6 +41,8 @@
 #define OF_CQ_ADDR               0x00110000
 #define OF_DATA_ADDR             0x00120000
 #define OF_READ_ADDR             0x00121000
+#define OF_IO_SQ_ADDR            0x00130000
+#define OF_IO_CQ_ADDR            0x00140000
 
 typedef struct QEMU_PACKED OpenFlashCommand {
     uint8_t opcode;
@@ -280,6 +283,50 @@ static void test_error_and_phase_wrap(OpenFlashFixture *f, gconstpointer data)
     g_assert_cmpuint(le16_to_cpu(cqe.flags) & 1, ==, 0);
 }
 
+static void test_create_io_queue(OpenFlashFixture *f, gconstpointer data)
+{
+    OpenFlashCommand cmd = {
+        .opcode = OF_ADMIN_CREATE_IOQ,
+        .cid = cpu_to_le16(1),
+        .nblocks = cpu_to_le32(4),
+        .control = cpu_to_le32(1 | (1 << 16)),
+        .data_addr = cpu_to_le64(OF_IO_SQ_ADDR),
+        .metadata_addr = cpu_to_le64(OF_IO_CQ_ADDR),
+    };
+    OpenFlashCompletion cqe;
+    uint8_t capability;
+    uint16_t control;
+    uint8_t payload[OF_BLOCK_SIZE];
+
+    qpci_msix_enable(f->dev);
+    g_assert_cmpuint(qpci_msix_table_size(f->dev), ==, 2);
+    capability = qpci_find_capability(f->dev, PCI_CAP_ID_MSIX, 0);
+    control = qpci_config_readw(f->dev, capability + PCI_MSIX_FLAGS);
+    qpci_config_writew(f->dev, capability + PCI_MSIX_FLAGS,
+                       control | PCI_MSIX_FLAGS_MASKALL);
+    openflash_configure_queue(f, 8);
+    cqe = openflash_submit(f, &cmd, 0, 1);
+    g_assert_cmpuint(le16_to_cpu(cqe.status), ==, OF_SC_SUCCESS);
+    g_assert_cmpuint(le64_to_cpu(cqe.result), ==, 1);
+
+    memset(payload, 0x5a, sizeof(payload));
+    qtest_memwrite(f->qts, OF_DATA_ADDR, payload, sizeof(payload));
+    memset(&cmd, 0, sizeof(cmd));
+    cmd.opcode = OF_OP_WRITE;
+    cmd.qid = cpu_to_le16(1);
+    cmd.cid = cpu_to_le16(2);
+    cmd.lba = cpu_to_le64(8);
+    cmd.nblocks = cpu_to_le32(1);
+    cmd.data_addr = cpu_to_le64(OF_DATA_ADDR);
+    qtest_memwrite(f->qts, OF_IO_SQ_ADDR, &cmd, sizeof(cmd));
+    openflash_writel(f, OF_REG_DOORBELL_BASE + 8, 1);
+    qtest_memread(f->qts, OF_IO_CQ_ADDR, &cqe, sizeof(cqe));
+    g_assert_cmpuint(le16_to_cpu(cqe.status), ==, OF_SC_SUCCESS);
+    g_assert_cmpuint(le16_to_cpu(cqe.cid), ==, 2);
+    g_assert_true(qpci_msix_pending(f->dev, 1));
+    qpci_msix_disable(f->dev);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -295,5 +342,7 @@ int main(int argc, char **argv)
               openflash_setup, test_data_path, openflash_teardown);
     qtest_add("/openflash/error-phase-wrap", OpenFlashFixture, NULL,
               openflash_setup, test_error_and_phase_wrap, openflash_teardown);
+    qtest_add("/openflash/create-io-queue", OpenFlashFixture, NULL,
+              openflash_setup, test_create_io_queue, openflash_teardown);
     return g_test_run();
 }

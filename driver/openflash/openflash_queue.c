@@ -54,6 +54,31 @@ static irqreturn_t openflash_irq(int irq, void *data)
 	return openflash_drain_admin_cq(ofdev) ? IRQ_HANDLED : IRQ_NONE;
 }
 
+static irqreturn_t openflash_io_irq(int irq, void *data)
+{
+	struct openflash_dev *ofdev = data;
+	struct openflash_queue *queue = &ofdev->queues[1];
+	struct openflash_completion *cqe;
+	u16 flags;
+	int completed = 0;
+
+	for (;;) {
+		cqe = &queue->cqes[queue->cq_head];
+		flags = le16_to_cpu(READ_ONCE(cqe->flags));
+		if ((flags & OPENFLASH_CQE_PHASE) != queue->cq_phase)
+			break;
+		dma_rmb();
+		queue->cq_head = (queue->cq_head + 1) % queue->depth;
+		if (!queue->cq_head)
+			queue->cq_phase ^= OPENFLASH_CQE_PHASE;
+		completed++;
+	}
+	if (!completed)
+		return IRQ_NONE;
+	writel(queue->cq_head, ofdev->bar + OPENFLASH_CQ_HEAD_DB(queue->qid));
+	return IRQ_HANDLED;
+}
+
 int openflash_setup_admin_queue(struct openflash_dev *ofdev)
 {
 	struct pci_dev *pdev = ofdev->pdev;
@@ -63,9 +88,10 @@ int openflash_setup_admin_queue(struct openflash_dev *ofdev)
 	u32 status;
 	int ret;
 
-	queue = devm_kzalloc(&pdev->dev, sizeof(*queue), GFP_KERNEL);
-	if (!queue)
+	ofdev->queues = devm_kcalloc(&pdev->dev, 2, sizeof(*queue), GFP_KERNEL);
+	if (!ofdev->queues)
 		return -ENOMEM;
+	queue = &ofdev->queues[0];
 	queue->qid = 0;
 	queue->depth = ofdev->queue_depth;
 	queue->cq_phase = 1;
@@ -85,7 +111,7 @@ int openflash_setup_admin_queue(struct openflash_dev *ofdev)
 		goto free_sq;
 	}
 
-	ret = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_MSIX);
+	ret = pci_alloc_irq_vectors(pdev, 2, 2, PCI_IRQ_MSIX);
 	if (ret < 0)
 		goto free_cq;
 	ret = request_irq(pci_irq_vector(pdev, 0), openflash_irq, 0,
@@ -93,7 +119,6 @@ int openflash_setup_admin_queue(struct openflash_dev *ofdev)
 	if (ret)
 		goto free_vectors;
 
-	ofdev->queues = queue;
 	ofdev->nr_queues = 1;
 	writel(lower_32_bits(queue->sq_dma), ofdev->bar + OPENFLASH_REG_ADMIN_SQ_LO);
 	writel(upper_32_bits(queue->sq_dma), ofdev->bar + OPENFLASH_REG_ADMIN_SQ_HI);
@@ -111,7 +136,6 @@ int openflash_setup_admin_queue(struct openflash_dev *ofdev)
 
 disable:
 	writel(0, ofdev->bar + OPENFLASH_REG_CONTROL);
-	ofdev->queues = NULL;
 	ofdev->nr_queues = 0;
 	free_irq(pci_irq_vector(pdev, 0), ofdev);
 free_vectors:
@@ -188,13 +212,85 @@ int openflash_admin_identify(struct openflash_dev *ofdev)
 	return 0;
 }
 
-void openflash_teardown_admin_queue(struct openflash_dev *ofdev)
+int openflash_setup_io_queue(struct openflash_dev *ofdev)
 {
-	struct openflash_queue *queue = ofdev->queues;
+	struct pci_dev *pdev = ofdev->pdev;
+	struct openflash_queue *queue = &ofdev->queues[1];
+	struct openflash_command cmd = {
+		.opcode = OPENFLASH_ADMIN_CREATE_IOQ,
+	};
+	size_t cq_size;
+	size_t sq_size;
+	u64 result;
+	int ret;
+
+	queue->qid = 1;
+	queue->depth = ofdev->queue_depth;
+	queue->cq_phase = 1;
+	spin_lock_init(&queue->sq_lock);
+	sq_size = queue->depth * sizeof(*queue->sq_cmds);
+	cq_size = queue->depth * sizeof(*queue->cqes);
+	queue->sq_cmds = dma_alloc_coherent(&pdev->dev, sq_size,
+					    &queue->sq_dma, GFP_KERNEL);
+	if (!queue->sq_cmds)
+		return -ENOMEM;
+	queue->cqes = dma_alloc_coherent(&pdev->dev, cq_size, &queue->cq_dma, GFP_KERNEL);
+	if (!queue->cqes) {
+		ret = -ENOMEM;
+		goto free_sq;
+	}
+	ret = request_irq(pci_irq_vector(pdev, 1), openflash_io_irq, 0,
+			  OPENFLASH_DRV_NAME "-io", ofdev);
+	if (ret)
+		goto free_cq;
+
+	cmd.nblocks = cpu_to_le32(queue->depth);
+	cmd.control = cpu_to_le32(OPENFLASH_CREATE_IOQ_CONTROL(queue->qid, 1));
+	cmd.data_addr = cpu_to_le64(queue->sq_dma);
+	cmd.metadata_addr = cpu_to_le64(queue->cq_dma);
+	ret = openflash_admin_command(ofdev, &cmd, &result);
+	if (ret)
+		goto free_irq;
+	if (result != queue->qid) {
+		ret = -EPROTO;
+		goto free_irq;
+	}
+	ofdev->nr_queues = 2;
+	return 0;
+
+free_irq:
+	free_irq(pci_irq_vector(pdev, 1), ofdev);
+free_cq:
+	dma_free_coherent(&pdev->dev, cq_size, queue->cqes, queue->cq_dma);
+free_sq:
+	dma_free_coherent(&pdev->dev, sq_size, queue->sq_cmds, queue->sq_dma);
+	return ret;
+}
+
+void openflash_teardown_io_queue(struct openflash_dev *ofdev)
+{
+	struct openflash_queue *queue;
 	struct pci_dev *pdev = ofdev->pdev;
 
-	if (!queue)
+	if (ofdev->nr_queues < 2)
 		return;
+	queue = &ofdev->queues[1];
+	free_irq(pci_irq_vector(pdev, 1), ofdev);
+	dma_free_coherent(&pdev->dev, queue->depth * sizeof(*queue->cqes),
+			  queue->cqes, queue->cq_dma);
+	dma_free_coherent(&pdev->dev, queue->depth * sizeof(*queue->sq_cmds),
+			  queue->sq_cmds, queue->sq_dma);
+	ofdev->nr_queues = 1;
+}
+
+void openflash_teardown_admin_queue(struct openflash_dev *ofdev)
+{
+	struct openflash_queue *queue;
+	struct pci_dev *pdev = ofdev->pdev;
+
+	if (!ofdev->queues)
+		return;
+	queue = &ofdev->queues[0];
 	writel(0, ofdev->bar + OPENFLASH_REG_CONTROL);
 	readl(ofdev->bar + OPENFLASH_REG_STATUS);
 	free_irq(pci_irq_vector(pdev, 0), ofdev);
@@ -203,6 +299,5 @@ void openflash_teardown_admin_queue(struct openflash_dev *ofdev)
 			  queue->cqes, queue->cq_dma);
 	dma_free_coherent(&pdev->dev, queue->depth * sizeof(*queue->sq_cmds),
 			  queue->sq_cmds, queue->sq_dma);
-	ofdev->queues = NULL;
 	ofdev->nr_queues = 0;
 }

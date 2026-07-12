@@ -60,6 +60,10 @@ enum openflash_status_code {
 	OPENFLASH_SC_INTERNAL = 7,
 };
 
+/* CREATE_IOQ: control[15:0] = qid, control[31:16] = MSI-X vector. */
+#define OPENFLASH_CREATE_IOQ_CONTROL(qid, vector) \
+	(((u32)(vector) << 16) | (u16)(qid))
+
 /* Exactly 64 bytes; one command occupies one cache line. */
 struct openflash_command {
 	u8 opcode;

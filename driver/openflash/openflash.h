@@ -48,6 +48,8 @@ struct openflash_dev {
 
 int openflash_setup_admin_queue(struct openflash_dev *ofdev);
 int openflash_admin_identify(struct openflash_dev *ofdev);
+int openflash_setup_io_queue(struct openflash_dev *ofdev);
+void openflash_teardown_io_queue(struct openflash_dev *ofdev);
 void openflash_teardown_admin_queue(struct openflash_dev *ofdev);
 
 #endif /* _OPENFLASH_H_ */

@@ -43,6 +43,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(OpenFlashState, OPENFLASH)
 #define OF_OP_FLUSH             0x03
 #define OF_OP_DISCARD           0x04
 #define OF_ADMIN_IDENTIFY       0x80
+#define OF_ADMIN_CREATE_IOQ     0x81
 
 #define OF_SC_SUCCESS           0
 #define OF_SC_INVALID_OPCODE    1
@@ -51,6 +52,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(OpenFlashState, OPENFLASH)
 
 #define OF_BLOCK_SIZE           4096
 #define OF_DEFAULT_CAPACITY     (64 * MiB)
+#define OF_MAX_QUEUES           2
 
 typedef struct QEMU_PACKED OpenFlashCommand {
     uint8_t opcode;
@@ -80,16 +82,22 @@ typedef struct QEMU_PACKED OpenFlashCompletion {
 QEMU_BUILD_BUG_ON(sizeof(OpenFlashCommand) != 64);
 QEMU_BUILD_BUG_ON(sizeof(OpenFlashCompletion) != 64);
 
-struct OpenFlashState {
-    PCIDevice parent_obj;
-    MemoryRegion mmio;
+typedef struct OpenFlashQueue {
     uint64_t sq_addr;
     uint64_t cq_addr;
-    uint32_t q_depth;
+    uint32_t depth;
     uint16_t sq_head;
     uint16_t cq_tail;
     uint16_t cq_head;
+    uint16_t vector;
     uint8_t cq_phase;
+    bool enabled;
+} OpenFlashQueue;
+
+struct OpenFlashState {
+    PCIDevice parent_obj;
+    MemoryRegion mmio;
+    OpenFlashQueue queues[OF_MAX_QUEUES];
     uint32_t control;
     uint32_t status;
     uint64_t capacity;
@@ -100,10 +108,9 @@ static void openflash_reset(DeviceState *dev)
 {
     OpenFlashState *s = OPENFLASH(dev);
 
-    s->sq_head = 0;
-    s->cq_tail = 0;
-    s->cq_head = 0;
-    s->cq_phase = 1;
+    memset(s->queues, 0, sizeof(s->queues));
+    s->queues[0].cq_phase = 1;
+    s->queues[0].vector = 0;
     s->control = 0;
     s->status = 0;
 }
@@ -121,6 +128,30 @@ static uint16_t openflash_execute(OpenFlashState *s, OpenFlashCommand *cmd,
     *result = 0;
     if (cmd->opcode == OF_ADMIN_IDENTIFY) {
         *result = s->capacity / OF_BLOCK_SIZE;
+        return OF_SC_SUCCESS;
+    }
+    if (cmd->opcode == OF_ADMIN_CREATE_IOQ) {
+        uint32_t control = le32_to_cpu(cmd->control);
+        uint16_t qid = control & 0xffff;
+        uint16_t vector = control >> 16;
+        OpenFlashQueue *queue;
+
+        if (!qid || qid >= OF_MAX_QUEUES || vector >= OF_MAX_QUEUES ||
+            !nblocks || nblocks > 4096 || !dma ||
+            !le64_to_cpu(cmd->metadata_addr)) {
+            return OF_SC_INVALID_FIELD;
+        }
+        queue = &s->queues[qid];
+        queue->sq_addr = dma;
+        queue->cq_addr = le64_to_cpu(cmd->metadata_addr);
+        queue->depth = nblocks;
+        queue->sq_head = 0;
+        queue->cq_tail = 0;
+        queue->cq_head = 0;
+        queue->cq_phase = 1;
+        queue->vector = vector;
+        queue->enabled = true;
+        *result = qid;
         return OF_SC_SUCCESS;
     }
     if (cmd->opcode == OF_OP_FLUSH) {
@@ -149,36 +180,45 @@ static uint16_t openflash_execute(OpenFlashState *s, OpenFlashCommand *cmd,
     return OF_SC_SUCCESS;
 }
 
-static void openflash_process_sq(OpenFlashState *s, uint16_t new_tail)
+static void openflash_process_sq(OpenFlashState *s, uint16_t qid,
+                                 uint16_t new_tail)
 {
     PCIDevice *pdev = PCI_DEVICE(s);
+    OpenFlashQueue *queue;
 
-    if (!(s->status & OF_STATUS_READY) || !s->q_depth || new_tail >= s->q_depth) {
+    if (qid >= OF_MAX_QUEUES) {
         return;
     }
-    while (s->sq_head != new_tail) {
+    queue = &s->queues[qid];
+    if (!(s->status & OF_STATUS_READY) || !queue->enabled ||
+        !queue->depth || new_tail >= queue->depth) {
+        return;
+    }
+    while (queue->sq_head != new_tail) {
         OpenFlashCommand cmd = { 0 };
         OpenFlashCompletion cqe = { 0 };
         uint64_t result;
         uint16_t status;
 
-        pci_dma_read(pdev, s->sq_addr + s->sq_head * sizeof(cmd), &cmd, sizeof(cmd));
+        pci_dma_read(pdev, queue->sq_addr + queue->sq_head * sizeof(cmd),
+                     &cmd, sizeof(cmd));
         status = openflash_execute(s, &cmd, &result);
-        s->sq_head = (s->sq_head + 1) % s->q_depth;
+        queue->sq_head = (queue->sq_head + 1) % queue->depth;
         cqe.result = cpu_to_le64(result);
         cqe.user_data = cmd.user_data;
-        cqe.sq_head = cpu_to_le16(s->sq_head);
+        cqe.sq_head = cpu_to_le16(queue->sq_head);
         cqe.cid = cmd.cid;
         cqe.status = cpu_to_le16(status);
-        cqe.flags = cpu_to_le16(s->cq_phase);
-        pci_dma_write(pdev, s->cq_addr + s->cq_tail * sizeof(cqe), &cqe, sizeof(cqe));
-        s->cq_tail = (s->cq_tail + 1) % s->q_depth;
-        if (!s->cq_tail) {
-            s->cq_phase ^= 1;
+        cqe.flags = cpu_to_le16(queue->cq_phase);
+        pci_dma_write(pdev, queue->cq_addr + queue->cq_tail * sizeof(cqe),
+                      &cqe, sizeof(cqe));
+        queue->cq_tail = (queue->cq_tail + 1) % queue->depth;
+        if (!queue->cq_tail) {
+            queue->cq_phase ^= 1;
         }
     }
     if (msix_enabled(pdev)) {
-        msix_notify(pdev, 0);
+        msix_notify(pdev, queue->vector);
     }
 }
 
@@ -191,11 +231,11 @@ static uint64_t openflash_mmio_read(void *opaque, hwaddr addr, unsigned size)
     case OF_REG_CAPABILITIES: return OF_CAPABILITIES;
     case OF_REG_CONTROL:      return s->control;
     case OF_REG_STATUS:       return s->status;
-    case OF_REG_ADMIN_SQ_LO:  return (uint32_t)s->sq_addr;
-    case OF_REG_ADMIN_SQ_HI:  return s->sq_addr >> 32;
-    case OF_REG_ADMIN_CQ_LO:  return (uint32_t)s->cq_addr;
-    case OF_REG_ADMIN_CQ_HI:  return s->cq_addr >> 32;
-    case OF_REG_ADMIN_QSIZE:  return s->q_depth;
+    case OF_REG_ADMIN_SQ_LO:  return (uint32_t)s->queues[0].sq_addr;
+    case OF_REG_ADMIN_SQ_HI:  return s->queues[0].sq_addr >> 32;
+    case OF_REG_ADMIN_CQ_LO:  return (uint32_t)s->queues[0].cq_addr;
+    case OF_REG_ADMIN_CQ_HI:  return s->queues[0].cq_addr >> 32;
+    case OF_REG_ADMIN_QSIZE:  return s->queues[0].depth;
     default:                  return 0;
     }
 }
@@ -214,23 +254,38 @@ static void openflash_mmio_write(void *opaque, hwaddr addr, uint64_t value,
             s->status = value & OF_CTRL_ENABLE ? OF_STATUS_READY : 0;
         }
         break;
-    case OF_REG_ADMIN_SQ_LO: s->sq_addr = (s->sq_addr & ~0xffffffffULL) | value; break;
-    case OF_REG_ADMIN_SQ_HI: s->sq_addr = (s->sq_addr & 0xffffffffULL) | (value << 32); break;
-    case OF_REG_ADMIN_CQ_LO: s->cq_addr = (s->cq_addr & ~0xffffffffULL) | value; break;
-    case OF_REG_ADMIN_CQ_HI: s->cq_addr = (s->cq_addr & 0xffffffffULL) | (value << 32); break;
+    case OF_REG_ADMIN_SQ_LO:
+        s->queues[0].sq_addr = (s->queues[0].sq_addr & ~0xffffffffULL) | value;
+        break;
+    case OF_REG_ADMIN_SQ_HI:
+        s->queues[0].sq_addr = (s->queues[0].sq_addr & 0xffffffffULL) | (value << 32);
+        break;
+    case OF_REG_ADMIN_CQ_LO:
+        s->queues[0].cq_addr = (s->queues[0].cq_addr & ~0xffffffffULL) | value;
+        break;
+    case OF_REG_ADMIN_CQ_HI:
+        s->queues[0].cq_addr = (s->queues[0].cq_addr & 0xffffffffULL) | (value << 32);
+        break;
     case OF_REG_ADMIN_QSIZE:
-        s->q_depth = value >= 2 && value <= 4096 ? value : 0;
-        break;
-    case OF_REG_DOORBELL_BASE:
-        openflash_process_sq(s, value);
-        break;
-    case OF_REG_DOORBELL_BASE + 4:
-        if (value < s->q_depth) {
-            s->cq_head = value;
-        }
+        s->queues[0].depth = value >= 2 && value <= 4096 ? value : 0;
+        s->queues[0].enabled = s->queues[0].depth != 0;
         break;
     default:
-        qemu_log_mask(LOG_GUEST_ERROR, "openflash: bad MMIO write @0x%" HWADDR_PRIx "\n", addr);
+        if (addr >= OF_REG_DOORBELL_BASE &&
+            addr < OF_REG_DOORBELL_BASE + OF_MAX_QUEUES * 8) {
+            uint16_t qid = (addr - OF_REG_DOORBELL_BASE) / 8;
+            OpenFlashQueue *queue = &s->queues[qid];
+
+            if ((addr - OF_REG_DOORBELL_BASE) % 8 == 0) {
+                openflash_process_sq(s, qid, value);
+            } else if (value < queue->depth) {
+                queue->cq_head = value;
+            }
+        } else {
+            qemu_log_mask(LOG_GUEST_ERROR,
+                          "openflash: bad MMIO write @0x%" HWADDR_PRIx "\n",
+                          addr);
+        }
     }
 }
 
@@ -254,12 +309,13 @@ static void openflash_realize(PCIDevice *pdev, Error **errp)
     memory_region_init_io(&s->mmio, OBJECT(s), &openflash_mmio_ops, s,
                           "openflash-mmio", OF_BAR_SIZE);
     pci_register_bar(pdev, 0, PCI_BASE_ADDRESS_SPACE_MEMORY, &s->mmio);
-    if (msix_init_exclusive_bar(pdev, 1, 4, errp)) {
+    if (msix_init_exclusive_bar(pdev, OF_MAX_QUEUES, 4, errp)) {
         g_free(s->storage);
         s->storage = NULL;
         return;
     }
     msix_vector_use(pdev, 0);
+    msix_vector_use(pdev, 1);
     openflash_reset(DEVICE(s));
 }
 
