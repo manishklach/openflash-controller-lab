@@ -178,13 +178,15 @@ static void test_identify_dma_msix(OpenFlashFixture *f, gconstpointer data)
         .user_data = cpu_to_le64(0xcafe),
     };
     OpenFlashCompletion cqe;
-    uint64_t vector_ctrl;
+    uint8_t capability;
+    uint16_t control;
 
     qpci_msix_enable(f->dev);
     g_assert_cmpuint(qpci_msix_table_size(f->dev), ==, 1);
-    vector_ctrl = f->dev->msix_table_off + PCI_MSIX_ENTRY_VECTOR_CTRL;
-    qpci_io_writel(f->dev, f->dev->msix_table_bar, vector_ctrl,
-                   PCI_MSIX_ENTRY_CTRL_MASKBIT);
+    capability = qpci_find_capability(f->dev, PCI_CAP_ID_MSIX, 0);
+    control = qpci_config_readw(f->dev, capability + PCI_MSIX_FLAGS);
+    qpci_config_writew(f->dev, capability + PCI_MSIX_FLAGS,
+                       control | PCI_MSIX_FLAGS_MASKALL);
     openflash_configure_queue(f, 8);
     cqe = openflash_submit(f, &cmd, 0, 1);
 
