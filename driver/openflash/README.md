@@ -8,21 +8,19 @@ capacity, negotiates a dedicated I/O queue, then registers `/dev/openflash0` thr
 identifiers and completion processing maps status codes back to Linux block status.
 
 The initial block path accepts reads, writes, flushes, and discards at 4 KiB alignment. It
-limits requests to one physically contiguous DMA segment because ABI v0.1 carries only one
-data address. Scatter-gather descriptors, FUA semantics, timeout escalation, reset replay,
+accepts up to 16 DMA segments per request through ABI v0.2 scatter-gather descriptors. FUA
+semantics, timeout escalation, reset replay,
 and persistent-media guarantees remain future work.
 
 ## Intended implementation order
 
-1. Extend the frozen ABI v0.1 in `openflash_abi.h` only through its documented versioning
+1. Extend the frozen ABI v0.2 in `openflash_abi.h` only through its documented versioning
    rules; add compile-time layout checks when wiring it into a Linux build.
 2. Expand the implemented interrupt-driven generic admin path with identify feature
    parsing, controller status mapping, abort, and reset escalation.
 3. Expand implemented MSI-X setup to one vector per I/O queue and a completion poller.
-4. Expand the single-segment `blk_mq` path to scatter-gather descriptors without allocating
-   or sleeping in `queue_rq`.
-5. Implement FUA, timeout/abort, controller reset, and in-flight replay rules.
-6. Add debugfs/sysfs telemetry only after stable counters are part of the ABI.
+4. Implement FUA, timeout/abort, controller reset, and in-flight replay rules.
+5. Add debugfs/sysfs telemetry only after stable counters are part of the ABI.
 
 Build it inside a configured Linux tree by adding the directory to the relevant Kconfig
 and Makefile. The scaffold compiles only after the provisional register contract is

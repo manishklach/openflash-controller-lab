@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from enum import IntEnum
 
 
-ABI_VERSION = 0x0000_0001
+ABI_VERSION = 0x0000_0002
 BLOCK_SIZE = 4096
 COMMAND_SIZE = 64
 COMPLETION_SIZE = 64

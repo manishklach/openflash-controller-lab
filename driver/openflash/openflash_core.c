@@ -32,7 +32,7 @@ static blk_status_t openflash_queue_rq(struct blk_mq_hw_ctx *hctx,
 	u16 cid = rq->tag + 1;
 	u16 sq_slot;
 	u8 opcode;
-	bool mapped = false;
+	u16 mapped = 0;
 
 	if (blk_rq_pos(rq) % OPENFLASH_SECTORS_PER_BLOCK ||
 	    bytes % OPENFLASH_BLOCK_SIZE || cid >= queue->depth)
@@ -59,22 +59,29 @@ static blk_status_t openflash_queue_rq(struct blk_mq_hw_ctx *hctx,
 		return BLK_STS_NOTSUPP;
 	}
 
-	if (blk_rq_nr_phys_segments(rq) != 1 || !bytes)
+	if (!bytes || blk_rq_nr_phys_segments(rq) > OPENFLASH_MAX_SGL_ENTRIES)
 		return BLK_STS_IOERR;
-	rq_for_each_segment(bvec, rq, iter)
-		break;
-	dma = dma_map_bvec(&ofdev->pdev->dev, &bvec, dma_dir, 0);
-	if (dma_mapping_error(&ofdev->pdev->dev, dma))
-		return BLK_STS_RESOURCE;
-	mapped = true;
+	rq_for_each_segment(bvec, rq, iter) {
+		dma = dma_map_bvec(&ofdev->pdev->dev, &bvec, dma_dir, 0);
+		if (dma_mapping_error(&ofdev->pdev->dev, dma))
+			goto unmap;
+		request->sgl[mapped].addr = cpu_to_le64(dma);
+		request->sgl[mapped].length = cpu_to_le32(bvec.bv_len);
+		request->sgl[mapped].reserved = 0;
+		mapped++;
+	}
 
 submit:
 	spin_lock_irqsave(&queue->sq_lock, flags);
 	sq_slot = queue->sq_tail;
 	if (unlikely(request->rq)) {
 		spin_unlock_irqrestore(&queue->sq_lock, flags);
-		if (mapped)
-			dma_unmap_page(&ofdev->pdev->dev, dma, bvec.bv_len, dma_dir);
+		while (mapped) {
+			mapped--;
+			dma_unmap_page(&ofdev->pdev->dev,
+				le64_to_cpu(request->sgl[mapped].addr),
+				le32_to_cpu(request->sgl[mapped].length), dma_dir);
+		}
 		return BLK_STS_RESOURCE;
 	}
 	cmd = &queue->sq_cmds[sq_slot];
@@ -85,12 +92,13 @@ submit:
 	cmd->lba = cpu_to_le64(lba);
 	cmd->nblocks = cpu_to_le32(nblocks);
 	if (mapped) {
-		request->dma = dma;
-		request->dma_len = bvec.bv_len;
+		request->nr_mapped = mapped;
 		request->dma_dir = dma_dir;
-		cmd->data_addr = cpu_to_le64(dma);
+		cmd->flags = OPENFLASH_CMD_F_SGL;
+		cmd->control = cpu_to_le32(mapped);
+		cmd->data_addr = cpu_to_le64(request->sgl_dma);
 	} else {
-		request->dma_len = 0;
+		request->nr_mapped = 0;
 	}
 	request->rq = rq;
 	blk_mq_start_request(rq);
@@ -99,6 +107,15 @@ submit:
 	writel(queue->sq_tail, ofdev->bar + OPENFLASH_SQ_TAIL_DB(queue->qid));
 	spin_unlock_irqrestore(&queue->sq_lock, flags);
 	return BLK_STS_OK;
+
+unmap:
+	while (mapped) {
+		mapped--;
+		dma_unmap_page(&ofdev->pdev->dev,
+			le64_to_cpu(request->sgl[mapped].addr),
+			le32_to_cpu(request->sgl[mapped].length), dma_dir);
+	}
+	return BLK_STS_RESOURCE;
 }
 
 static const struct blk_mq_ops openflash_mq_ops = {
@@ -135,7 +152,7 @@ int openflash_register_block_device(struct openflash_dev *ofdev)
 	blk_queue_physical_block_size(queue, OPENFLASH_BLOCK_SIZE);
 	blk_queue_max_hw_sectors(queue, (ofdev->queue_depth - 1) *
 				 OPENFLASH_SECTORS_PER_BLOCK);
-	blk_queue_max_segments(queue, 1);
+	blk_queue_max_segments(queue, OPENFLASH_MAX_SGL_ENTRIES);
 	ofdev->disk->major = 0;
 	ofdev->disk->first_minor = 0;
 	ofdev->disk->minors = 1;

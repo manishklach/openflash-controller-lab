@@ -6,7 +6,7 @@
 #include <linux/types.h>
 
 #define OPENFLASH_ABI_VERSION_MAJOR 0
-#define OPENFLASH_ABI_VERSION_MINOR 1
+#define OPENFLASH_ABI_VERSION_MINOR 2
 #define OPENFLASH_ABI_VERSION \
 	((OPENFLASH_ABI_VERSION_MAJOR << 16) | OPENFLASH_ABI_VERSION_MINOR)
 
@@ -92,5 +92,20 @@ struct openflash_completion {
 } __packed;
 
 #define OPENFLASH_CQE_PHASE	BIT(0)
+
+/* ABI v0.2: data_addr points to an SGL and control[15:0] is its entry count. */
+#define OPENFLASH_CMD_F_SGL	BIT(1)
+#define OPENFLASH_SGL_COUNT_MASK	GENMASK(15, 0)
+#define OPENFLASH_MAX_SGL_ENTRIES	16
+
+struct openflash_sgl_desc {
+	__le64 addr;
+	__le32 length;
+	__le32 reserved;
+} __packed;
+
+static_assert(sizeof(struct openflash_command) == 64);
+static_assert(sizeof(struct openflash_completion) == 64);
+static_assert(sizeof(struct openflash_sgl_desc) == 16);
 
 #endif /* _OPENFLASH_ABI_H_ */

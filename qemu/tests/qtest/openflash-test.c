@@ -24,7 +24,7 @@
 #define OF_REG_ADMIN_QSIZE       0x0030
 #define OF_REG_DOORBELL_BASE     0x1000
 
-#define OF_ABI_VERSION           0x00000001
+#define OF_ABI_VERSION           0x00000002
 #define OF_CTRL_ENABLE           BIT(0)
 #define OF_CTRL_RESET            BIT(1)
 #define OF_STATUS_READY          BIT(0)
@@ -32,6 +32,7 @@
 #define OF_OP_READ               0x01
 #define OF_OP_WRITE              0x02
 #define OF_OP_DISCARD            0x04
+#define OF_CMD_F_SGL             BIT(1)
 #define OF_ADMIN_IDENTIFY        0x80
 #define OF_ADMIN_CREATE_IOQ      0x81
 #define OF_SC_SUCCESS            0
@@ -43,6 +44,9 @@
 #define OF_READ_ADDR             0x00121000
 #define OF_IO_SQ_ADDR            0x00130000
 #define OF_IO_CQ_ADDR            0x00140000
+#define OF_SGL_ADDR              0x00150000
+#define OF_SGL_DATA0_ADDR        0x00151000
+#define OF_SGL_DATA1_ADDR        0x00152000
 
 typedef struct QEMU_PACKED OpenFlashCommand {
     uint8_t opcode;
@@ -69,8 +73,15 @@ typedef struct QEMU_PACKED OpenFlashCompletion {
     uint64_t reserved[5];
 } OpenFlashCompletion;
 
+typedef struct QEMU_PACKED OpenFlashSglDesc {
+    uint64_t addr;
+    uint32_t length;
+    uint32_t reserved;
+} OpenFlashSglDesc;
+
 QEMU_BUILD_BUG_ON(sizeof(OpenFlashCommand) != 64);
 QEMU_BUILD_BUG_ON(sizeof(OpenFlashCompletion) != 64);
+QEMU_BUILD_BUG_ON(sizeof(OpenFlashSglDesc) != 16);
 
 typedef struct OpenFlashFixture {
     QTestState *qts;
@@ -256,6 +267,62 @@ static void test_data_path(OpenFlashFixture *f, gconstpointer data)
     g_assert_true(buffer_is_zero(readback, sizeof(readback)));
 }
 
+static void test_sgl_data_path(OpenFlashFixture *f, gconstpointer data)
+{
+    uint8_t first[OF_BLOCK_SIZE];
+    uint8_t second[OF_BLOCK_SIZE];
+    uint8_t expected_first[OF_BLOCK_SIZE];
+    uint8_t expected_second[OF_BLOCK_SIZE];
+    uint8_t readback[OF_BLOCK_SIZE];
+    OpenFlashSglDesc sgl[2] = {
+        { .addr = cpu_to_le64(OF_SGL_DATA0_ADDR),
+          .length = cpu_to_le32(OF_BLOCK_SIZE) },
+        { .addr = cpu_to_le64(OF_SGL_DATA1_ADDR),
+          .length = cpu_to_le32(OF_BLOCK_SIZE) },
+    };
+    OpenFlashCompletion cqe;
+    OpenFlashCommand cmd = { 0 };
+
+    memset(expected_first, 0x3c, sizeof(expected_first));
+    memset(expected_second, 0xc3, sizeof(expected_second));
+    memcpy(first, expected_first, sizeof(first));
+    memcpy(second, expected_second, sizeof(second));
+    qtest_memwrite(f->qts, OF_SGL_DATA0_ADDR, first, sizeof(first));
+    qtest_memwrite(f->qts, OF_SGL_DATA1_ADDR, second, sizeof(second));
+    qtest_memwrite(f->qts, OF_SGL_ADDR, sgl, sizeof(sgl));
+    openflash_configure_queue(f, 8);
+
+    cmd.opcode = OF_OP_WRITE;
+    cmd.flags = OF_CMD_F_SGL;
+    cmd.cid = cpu_to_le16(1);
+    cmd.lba = cpu_to_le64(16);
+    cmd.nblocks = cpu_to_le32(2);
+    cmd.control = cpu_to_le32(2);
+    cmd.data_addr = cpu_to_le64(OF_SGL_ADDR);
+    cqe = openflash_submit(f, &cmd, 0, 1);
+    g_assert_cmpuint(le16_to_cpu(cqe.status), ==, OF_SC_SUCCESS);
+    openflash_writel(f, OF_REG_DOORBELL_BASE + 4, 1);
+
+    memset(first, 0, sizeof(first));
+    memset(second, 0, sizeof(second));
+    qtest_memwrite(f->qts, OF_SGL_DATA0_ADDR, first, sizeof(first));
+    qtest_memwrite(f->qts, OF_SGL_DATA1_ADDR, second, sizeof(second));
+    memset(&cmd, 0, sizeof(cmd));
+    cmd.opcode = OF_OP_READ;
+    cmd.flags = OF_CMD_F_SGL;
+    cmd.cid = cpu_to_le16(2);
+    cmd.lba = cpu_to_le64(16);
+    cmd.nblocks = cpu_to_le32(2);
+    cmd.control = cpu_to_le32(2);
+    cmd.data_addr = cpu_to_le64(OF_SGL_ADDR);
+    cqe = openflash_submit(f, &cmd, 1, 2);
+    g_assert_cmpuint(le16_to_cpu(cqe.status), ==, OF_SC_SUCCESS);
+    qtest_memread(f->qts, OF_SGL_DATA0_ADDR, readback, sizeof(readback));
+    g_assert_cmpmem(readback, sizeof(readback), expected_first, sizeof(expected_first));
+    qtest_memread(f->qts, OF_SGL_DATA1_ADDR, readback, sizeof(readback));
+    g_assert_cmpmem(readback, sizeof(readback), expected_second, sizeof(expected_second));
+}
+
 static void test_error_and_phase_wrap(OpenFlashFixture *f, gconstpointer data)
 {
     OpenFlashCommand cmd = {
@@ -340,6 +407,8 @@ int main(int argc, char **argv)
               openflash_setup, test_identify_dma_msix, openflash_teardown);
     qtest_add("/openflash/data-path", OpenFlashFixture, NULL,
               openflash_setup, test_data_path, openflash_teardown);
+    qtest_add("/openflash/sgl-data-path", OpenFlashFixture, NULL,
+              openflash_setup, test_sgl_data_path, openflash_teardown);
     qtest_add("/openflash/error-phase-wrap", OpenFlashFixture, NULL,
               openflash_setup, test_error_and_phase_wrap, openflash_teardown);
     qtest_add("/openflash/create-io-queue", OpenFlashFixture, NULL,

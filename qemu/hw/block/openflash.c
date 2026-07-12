@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  *
- * This source targets QEMU's hw/block tree and implements the OpenFlash ABI v0.1
+ * This source targets QEMU's hw/block tree and implements the OpenFlash ABI v0.2
  * admin queue as a small RAM-backed device. See qemu/README.md for integration.
  */
 #include "qemu/osdep.h"
@@ -20,7 +20,7 @@
 #define TYPE_OPENFLASH "openflash"
 OBJECT_DECLARE_SIMPLE_TYPE(OpenFlashState, OPENFLASH)
 
-#define OF_ABI_VERSION          0x00000001
+#define OF_ABI_VERSION          0x00000002
 #define OF_BAR_SIZE             0x2000
 #define OF_REG_ABI_VERSION      0x0000
 #define OF_REG_CAPABILITIES     0x0008
@@ -49,6 +49,9 @@ OBJECT_DECLARE_SIMPLE_TYPE(OpenFlashState, OPENFLASH)
 #define OF_SC_INVALID_OPCODE    1
 #define OF_SC_INVALID_FIELD     2
 #define OF_SC_LBA_RANGE         3
+
+#define OF_CMD_F_SGL            BIT(1)
+#define OF_MAX_SGL_ENTRIES      16
 
 #define OF_BLOCK_SIZE           4096
 #define OF_DEFAULT_CAPACITY     (64 * MiB)
@@ -79,8 +82,15 @@ typedef struct QEMU_PACKED OpenFlashCompletion {
     uint64_t reserved[5];
 } OpenFlashCompletion;
 
+typedef struct QEMU_PACKED OpenFlashSglDesc {
+    uint64_t addr;
+    uint32_t length;
+    uint32_t reserved;
+} OpenFlashSglDesc;
+
 QEMU_BUILD_BUG_ON(sizeof(OpenFlashCommand) != 64);
 QEMU_BUILD_BUG_ON(sizeof(OpenFlashCompletion) != 64);
+QEMU_BUILD_BUG_ON(sizeof(OpenFlashSglDesc) != 16);
 
 typedef struct OpenFlashQueue {
     uint64_t sq_addr;
@@ -115,13 +125,58 @@ static void openflash_reset(DeviceState *dev)
     s->status = 0;
 }
 
+static bool openflash_transfer(OpenFlashState *s, OpenFlashCommand *cmd,
+                               uint64_t offset, uint64_t length, bool write)
+{
+    PCIDevice *pdev = PCI_DEVICE(s);
+    uint64_t dma = le64_to_cpu(cmd->data_addr);
+    uint64_t transferred = 0;
+    uint16_t count;
+    uint16_t index;
+
+    if (!(cmd->flags & OF_CMD_F_SGL)) {
+        if (!dma) {
+            return false;
+        }
+        if (write) {
+            pci_dma_read(pdev, dma, s->storage + offset, length);
+        } else {
+            pci_dma_write(pdev, dma, s->storage + offset, length);
+        }
+        return true;
+    }
+    count = le32_to_cpu(cmd->control) & 0xffff;
+    if (!count || count > OF_MAX_SGL_ENTRIES || !dma) {
+        return false;
+    }
+    for (index = 0; index < count; index++) {
+        OpenFlashSglDesc desc = { 0 };
+        uint64_t addr;
+        uint32_t segment_length;
+
+        pci_dma_read(pdev, dma + index * sizeof(desc), &desc, sizeof(desc));
+        addr = le64_to_cpu(desc.addr);
+        segment_length = le32_to_cpu(desc.length);
+        if (!addr || !segment_length || segment_length > length - transferred) {
+            return false;
+        }
+        if (write) {
+            pci_dma_read(pdev, addr, s->storage + offset + transferred,
+                         segment_length);
+        } else {
+            pci_dma_write(pdev, addr, s->storage + offset + transferred,
+                          segment_length);
+        }
+        transferred += segment_length;
+    }
+    return transferred == length;
+}
+
 static uint16_t openflash_execute(OpenFlashState *s, OpenFlashCommand *cmd,
                                   uint64_t *result)
 {
-    PCIDevice *pdev = PCI_DEVICE(s);
     uint64_t lba = le64_to_cpu(cmd->lba);
     uint32_t nblocks = le32_to_cpu(cmd->nblocks);
-    uint64_t dma = le64_to_cpu(cmd->data_addr);
     uint64_t offset = lba * OF_BLOCK_SIZE;
     uint64_t length = (uint64_t)nblocks * OF_BLOCK_SIZE;
 
@@ -165,10 +220,14 @@ static uint16_t openflash_execute(OpenFlashState *s, OpenFlashCommand *cmd,
     }
     switch (cmd->opcode) {
     case OF_OP_READ:
-        pci_dma_write(pdev, dma, s->storage + offset, length);
+        if (!openflash_transfer(s, cmd, offset, length, false)) {
+            return OF_SC_INVALID_FIELD;
+        }
         break;
     case OF_OP_WRITE:
-        pci_dma_read(pdev, dma, s->storage + offset, length);
+        if (!openflash_transfer(s, cmd, offset, length, true)) {
+            return OF_SC_INVALID_FIELD;
+        }
         break;
     case OF_OP_DISCARD:
         memset(s->storage + offset, 0, length);

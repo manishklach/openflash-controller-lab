@@ -20,8 +20,9 @@
 
 struct openflash_request {
 	struct request *rq;
-	dma_addr_t dma;
-	unsigned int dma_len;
+	struct openflash_sgl_desc *sgl;
+	dma_addr_t sgl_dma;
+	u16 nr_mapped;
 	enum dma_data_direction dma_dir;
 };
 

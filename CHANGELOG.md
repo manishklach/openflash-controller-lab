@@ -14,6 +14,9 @@ for public milestones while the hardware ABI is versioned independently.
 - DMA QTests for identify, MSI-X, data integrity, discard, errors, and phase wrap.
 - Interrupt-driven Linux admin completion draining with timeout synchronization.
 - Admin-negotiated I/O queue with independent DMA rings and MSI-X vector 1.
+- Linux `blk-mq` disk registration with tag-owned request completion.
+- ABI v0.2 scatter-gather lists with up to 16 DMA segments per I/O command.
+- QEMU SGL validation and a two-segment DMA read/write QTest.
 
 ## [0.3.0] - 2026-07-11
 

@@ -100,10 +100,13 @@ static irqreturn_t openflash_io_irq(int irq, void *data)
 				dev_err_ratelimited(&ofdev->pdev->dev,
 						    "stale I/O completion CID %u\n", cid);
 			} else {
-				if (request->dma_len)
-					dma_unmap_page(&ofdev->pdev->dev, request->dma,
-						       request->dma_len, request->dma_dir);
-				request->dma_len = 0;
+				while (request->nr_mapped) {
+					request->nr_mapped--;
+					dma_unmap_page(&ofdev->pdev->dev,
+						le64_to_cpu(request->sgl[request->nr_mapped].addr),
+						le32_to_cpu(request->sgl[request->nr_mapped].length),
+						request->dma_dir);
+				}
 				blk_mq_end_request(rq,
 					openflash_blk_status(le16_to_cpu(cqe->status)));
 			}
@@ -262,6 +265,7 @@ int openflash_setup_io_queue(struct openflash_dev *ofdev)
 	size_t cq_size;
 	size_t sq_size;
 	u64 result;
+	u16 tag;
 	int ret;
 
 	queue->qid = 1;
@@ -285,10 +289,17 @@ int openflash_setup_io_queue(struct openflash_dev *ofdev)
 		ret = -ENOMEM;
 		goto free_cq;
 	}
+	for (tag = 0; tag < queue->depth - 1; tag++) {
+		queue->requests[tag].sgl = dma_alloc_coherent(&pdev->dev,
+			OPENFLASH_MAX_SGL_ENTRIES * sizeof(*queue->requests[tag].sgl),
+			&queue->requests[tag].sgl_dma, GFP_KERNEL);
+		if (!queue->requests[tag].sgl)
+			goto free_sgl;
+	}
 	ret = request_irq(pci_irq_vector(pdev, 1), openflash_io_irq, 0,
 			  OPENFLASH_DRV_NAME "-io", ofdev);
 	if (ret)
-		goto free_cq;
+		goto free_sgl;
 
 	cmd.nblocks = cpu_to_le32(queue->depth);
 	cmd.control = cpu_to_le32(OPENFLASH_CREATE_IOQ_CONTROL(queue->qid, 1));
@@ -306,6 +317,12 @@ int openflash_setup_io_queue(struct openflash_dev *ofdev)
 
 free_irq:
 	free_irq(pci_irq_vector(pdev, 1), ofdev);
+free_sgl:
+	while (tag--) {
+		dma_free_coherent(&pdev->dev,
+			OPENFLASH_MAX_SGL_ENTRIES * sizeof(*queue->requests[tag].sgl),
+			queue->requests[tag].sgl, queue->requests[tag].sgl_dma);
+	}
 free_cq:
 	dma_free_coherent(&pdev->dev, cq_size, queue->cqes, queue->cq_dma);
 free_sq:
@@ -317,11 +334,16 @@ void openflash_teardown_io_queue(struct openflash_dev *ofdev)
 {
 	struct openflash_queue *queue;
 	struct pci_dev *pdev = ofdev->pdev;
+	u16 tag;
 
 	if (ofdev->nr_queues < 2)
 		return;
 	queue = &ofdev->queues[1];
 	free_irq(pci_irq_vector(pdev, 1), ofdev);
+	for (tag = 0; tag < queue->depth - 1; tag++)
+		dma_free_coherent(&pdev->dev,
+			OPENFLASH_MAX_SGL_ENTRIES * sizeof(*queue->requests[tag].sgl),
+			queue->requests[tag].sgl, queue->requests[tag].sgl_dma);
 	dma_free_coherent(&pdev->dev, queue->depth * sizeof(*queue->cqes),
 			  queue->cqes, queue->cq_dma);
 	dma_free_coherent(&pdev->dev, queue->depth * sizeof(*queue->sq_cmds),
@@ -344,10 +366,13 @@ void openflash_fail_io_requests(struct openflash_dev *ofdev, blk_status_t status
 		rq = xchg(&request->rq, NULL);
 		if (!rq)
 			continue;
-		if (request->dma_len)
-			dma_unmap_page(&ofdev->pdev->dev, request->dma,
-				       request->dma_len, request->dma_dir);
-		request->dma_len = 0;
+		while (request->nr_mapped) {
+			request->nr_mapped--;
+			dma_unmap_page(&ofdev->pdev->dev,
+				le64_to_cpu(request->sgl[request->nr_mapped].addr),
+				le32_to_cpu(request->sgl[request->nr_mapped].length),
+				request->dma_dir);
+		}
 		blk_mq_end_request(rq, status);
 	}
 }

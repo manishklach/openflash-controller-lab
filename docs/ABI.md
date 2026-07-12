@@ -1,4 +1,4 @@
-# OpenFlash Host/Controller ABI v0.1
+# OpenFlash Host/Controller ABI v0.2
 
 The ABI is intentionally small and versioned before the QEMU device and `blk-mq` path are
 implemented. The normative C layout is `driver/openflash/openflash_abi.h`.
@@ -7,7 +7,8 @@ implemented. The normative C layout is `driver/openflash/openflash_abi.h`.
 
 - BAR0 contains capability, lifecycle, admin queue, and doorbell registers.
 - Submission and completion rings use DMA-coherent host memory.
-- Commands and completions are 64 bytes and little-endian.
+- Commands and completions are 64 bytes and little-endian. ABI v0.2 adds an optional
+  scatter-gather list (SGL) with fixed 16-byte address/length entries.
 - The host writes descriptors, issues a DMA write barrier, then updates the SQ doorbell.
 - The controller writes a completion, issues its visibility barrier, then interrupts.
 - Completion phase toggles on every ring wrap, preventing stale-entry consumption.
@@ -28,6 +29,15 @@ Normal write completion means data is accepted under the controller's advertised
 policy. FUA completion means the data and required FTL metadata are power-loss durable.
 Flush orders all earlier writes and makes them durable before completion. Implementations
 without protected volatile cache must either persist synchronously or not advertise it.
+
+## Data descriptors
+
+Read and write commands without `CMD_F_SGL` use `data_addr` as one contiguous DMA buffer.
+With `CMD_F_SGL`, `data_addr` points to an SGL and `control[15:0]` is the number of entries.
+Each entry contains a 64-bit DMA address and 32-bit byte length. The controller rejects zero
+length entries, more than 16 entries, and lists whose aggregate length is not exactly
+`nblocks * 4096`. This leaves command and completion layouts unchanged while enabling
+multi-page Linux block requests.
 
 ## Evolution rules
 
