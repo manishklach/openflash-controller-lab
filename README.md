@@ -257,9 +257,10 @@ device is present. The PCI ID and ABI are provisional.
 
 ## Benchmark strategy
 
-The `bench/fio` profiles cover mixed random latency and sequential bandwidth. They target
-`/dev/openflash0`, which will not exist until the `blk-mq` milestone. When enabled, every
-performance run should also report:
+The `bench/fio` profiles cover mixed random latency and sequential bandwidth. The first
+`blk-mq` milestone exposes `/dev/openflash0` for a matching OpenFlash QEMU device. It
+currently accepts 4 KiB-aligned, single-segment I/O; do not treat its RAM-backed media or
+flush behavior as a persistence benchmark. Every performance run should also report:
 
 - device geometry, firmware/ABI revision, PCIe link, and NAND timing profile;
 - workload seed, queue depth, job count, block size, read ratio, and runtime;

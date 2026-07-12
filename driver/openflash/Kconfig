@@ -2,6 +2,5 @@ config OPENFLASH
 	tristate "OpenFlash experimental NAND controller"
 	depends on PCI && BLOCK
 	help
-	  Experimental driver scaffold for the OpenFlash managed NAND controller.
-	  This option does not expose a block device until the queue ABI is implemented.
-
+	  Experimental driver for the OpenFlash managed NAND controller. It exposes
+	  a 4 KiB-blocked disk through one MSI-X backed blk-mq hardware queue.

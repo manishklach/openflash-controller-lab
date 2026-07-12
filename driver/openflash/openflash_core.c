@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/dma-mapping.h>
+#include <linux/bio.h>
+#include <linux/blk-mq.h>
+#include <linux/blkdev.h>
 #include <linux/module.h>
 #include <linux/pci.h>
 #include <linux/io.h>
@@ -9,6 +12,160 @@
 /* Replace with an allocated experimental PCI ID before hardware/emulator binding. */
 #define OPENFLASH_VENDOR_ID 0x1d1d
 #define OPENFLASH_DEVICE_ID 0xf15a
+
+static blk_status_t openflash_queue_rq(struct blk_mq_hw_ctx *hctx,
+					const struct blk_mq_queue_data *bd)
+{
+	struct openflash_dev *ofdev = hctx->queue->queuedata;
+	struct openflash_queue *queue = &ofdev->queues[1];
+	struct openflash_request *request;
+	struct openflash_command *cmd;
+	struct request *rq = bd->rq;
+	struct bio_vec bvec;
+	struct req_iterator iter;
+	enum dma_data_direction dma_dir;
+	dma_addr_t dma = 0;
+	u64 lba = blk_rq_pos(rq) / OPENFLASH_SECTORS_PER_BLOCK;
+	unsigned int bytes = blk_rq_bytes(rq);
+	u32 nblocks = bytes / OPENFLASH_BLOCK_SIZE;
+	unsigned long flags;
+	u16 cid = rq->tag + 1;
+	u16 sq_slot;
+	u8 opcode;
+	bool mapped = false;
+
+	if (blk_rq_pos(rq) % OPENFLASH_SECTORS_PER_BLOCK ||
+	    bytes % OPENFLASH_BLOCK_SIZE || cid >= queue->depth)
+		return BLK_STS_IOERR;
+
+	request = &queue->requests[rq->tag];
+
+	switch (req_op(rq)) {
+	case REQ_OP_READ:
+		opcode = OPENFLASH_OP_READ;
+		dma_dir = DMA_FROM_DEVICE;
+		break;
+	case REQ_OP_WRITE:
+		opcode = OPENFLASH_OP_WRITE;
+		dma_dir = DMA_TO_DEVICE;
+		break;
+	case REQ_OP_FLUSH:
+		opcode = OPENFLASH_OP_FLUSH;
+		goto submit;
+	case REQ_OP_DISCARD:
+		opcode = OPENFLASH_OP_DISCARD;
+		goto submit;
+	default:
+		return BLK_STS_NOTSUPP;
+	}
+
+	if (blk_rq_nr_phys_segments(rq) != 1 || !bytes)
+		return BLK_STS_IOERR;
+	rq_for_each_segment(bvec, rq, iter)
+		break;
+	dma = dma_map_bvec(&ofdev->pdev->dev, &bvec, dma_dir, 0);
+	if (dma_mapping_error(&ofdev->pdev->dev, dma))
+		return BLK_STS_RESOURCE;
+	mapped = true;
+
+submit:
+	spin_lock_irqsave(&queue->sq_lock, flags);
+	sq_slot = queue->sq_tail;
+	if (unlikely(request->rq)) {
+		spin_unlock_irqrestore(&queue->sq_lock, flags);
+		if (mapped)
+			dma_unmap_page(&ofdev->pdev->dev, dma, bvec.bv_len, dma_dir);
+		return BLK_STS_RESOURCE;
+	}
+	cmd = &queue->sq_cmds[sq_slot];
+	memset(cmd, 0, sizeof(*cmd));
+	cmd->opcode = opcode;
+	cmd->qid = cpu_to_le16(queue->qid);
+	cmd->cid = cpu_to_le16(cid);
+	cmd->lba = cpu_to_le64(lba);
+	cmd->nblocks = cpu_to_le32(nblocks);
+	if (mapped) {
+		request->dma = dma;
+		request->dma_len = bvec.bv_len;
+		request->dma_dir = dma_dir;
+		cmd->data_addr = cpu_to_le64(dma);
+	} else {
+		request->dma_len = 0;
+	}
+	request->rq = rq;
+	blk_mq_start_request(rq);
+	dma_wmb();
+	queue->sq_tail = (queue->sq_tail + 1) % queue->depth;
+	writel(queue->sq_tail, ofdev->bar + OPENFLASH_SQ_TAIL_DB(queue->qid));
+	spin_unlock_irqrestore(&queue->sq_lock, flags);
+	return BLK_STS_OK;
+}
+
+static const struct blk_mq_ops openflash_mq_ops = {
+	.queue_rq = openflash_queue_rq,
+};
+
+static const struct block_device_operations openflash_fops = {
+	.owner = THIS_MODULE,
+};
+
+int openflash_register_block_device(struct openflash_dev *ofdev)
+{
+	struct request_queue *queue;
+	int ret;
+
+	ofdev->tag_set.ops = &openflash_mq_ops;
+	ofdev->tag_set.nr_hw_queues = 1;
+	ofdev->tag_set.queue_depth = ofdev->queue_depth - 1;
+	ofdev->tag_set.numa_node = NUMA_NO_NODE;
+	ofdev->tag_set.cmd_size = 0;
+	ofdev->tag_set.driver_data = ofdev;
+	ret = blk_mq_alloc_tag_set(&ofdev->tag_set);
+	if (ret)
+		return ret;
+	ofdev->disk = blk_mq_alloc_disk(&ofdev->tag_set, ofdev);
+	if (IS_ERR(ofdev->disk)) {
+		ret = PTR_ERR(ofdev->disk);
+		ofdev->disk = NULL;
+		goto free_tag_set;
+	}
+	queue = ofdev->disk->queue;
+	queue->queuedata = ofdev;
+	blk_queue_logical_block_size(queue, OPENFLASH_BLOCK_SIZE);
+	blk_queue_physical_block_size(queue, OPENFLASH_BLOCK_SIZE);
+	blk_queue_max_hw_sectors(queue, (ofdev->queue_depth - 1) *
+				 OPENFLASH_SECTORS_PER_BLOCK);
+	blk_queue_max_segments(queue, 1);
+	ofdev->disk->major = 0;
+	ofdev->disk->first_minor = 0;
+	ofdev->disk->minors = 1;
+	ofdev->disk->fops = &openflash_fops;
+	ofdev->disk->private_data = ofdev;
+	snprintf(ofdev->disk->disk_name, DISK_NAME_LEN, "openflash0");
+	set_capacity(ofdev->disk, ofdev->capacity_blocks * OPENFLASH_SECTORS_PER_BLOCK);
+	ret = device_add_disk(&ofdev->pdev->dev, ofdev->disk, NULL);
+	if (ret)
+		goto put_disk;
+	return 0;
+
+put_disk:
+	put_disk(ofdev->disk);
+	ofdev->disk = NULL;
+free_tag_set:
+	blk_mq_free_tag_set(&ofdev->tag_set);
+	return ret;
+}
+
+void openflash_unregister_block_device(struct openflash_dev *ofdev)
+{
+	if (!ofdev->disk)
+		return;
+	del_gendisk(ofdev->disk);
+	openflash_fail_io_requests(ofdev, BLK_STS_IOERR);
+	put_disk(ofdev->disk);
+	ofdev->disk = NULL;
+	blk_mq_free_tag_set(&ofdev->tag_set);
+}
 
 static int openflash_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 {
@@ -56,10 +213,16 @@ static int openflash_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		pci_clear_master(pdev);
 		return dev_err_probe(&pdev->dev, ret, "failed to create I/O queue\n");
 	}
+	ret = openflash_register_block_device(ofdev);
+	if (ret) {
+		openflash_teardown_io_queue(ofdev);
+		openflash_teardown_admin_queue(ofdev);
+		pci_clear_master(pdev);
+		return dev_err_probe(&pdev->dev, ret, "failed to register block disk\n");
+	}
 
-	/* blk-mq registration waits for negotiated I/O queues and timeout handling. */
 	dev_info(&pdev->dev,
-		 "ABI 0x%08x I/O queue ready, capacity %llu blocks; block path disabled\n",
+		 "ABI 0x%08x I/O queue ready, capacity %llu blocks\n",
 		 OPENFLASH_ABI_VERSION, ofdev->capacity_blocks);
 	return 0;
 }
@@ -70,6 +233,7 @@ static void openflash_remove(struct pci_dev *pdev)
 
 	/* Future implementation must quiesce and drain queues before resources unwind. */
 	if (ofdev) {
+		openflash_unregister_block_device(ofdev);
 		openflash_teardown_io_queue(ofdev);
 		openflash_teardown_admin_queue(ofdev);
 		pci_clear_master(pdev);

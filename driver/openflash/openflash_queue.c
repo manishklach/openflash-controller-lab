@@ -7,6 +7,24 @@
 
 #include "openflash.h"
 
+static blk_status_t openflash_blk_status(u16 status)
+{
+	switch (status) {
+	case OPENFLASH_SC_SUCCESS:
+		return BLK_STS_OK;
+	case OPENFLASH_SC_LBA_RANGE:
+		return BLK_STS_TARGET;
+	case OPENFLASH_SC_MEDIA_ERROR:
+	case OPENFLASH_SC_ECC_UNCORRECTABLE:
+		return BLK_STS_MEDIUM;
+	case OPENFLASH_SC_INVALID_OPCODE:
+	case OPENFLASH_SC_INVALID_FIELD:
+		return BLK_STS_NOTSUPP;
+	default:
+		return BLK_STS_IOERR;
+	}
+}
+
 static int openflash_drain_admin_cq(struct openflash_dev *ofdev)
 {
 	struct openflash_queue *queue = &ofdev->queues[0];
@@ -59,6 +77,9 @@ static irqreturn_t openflash_io_irq(int irq, void *data)
 	struct openflash_dev *ofdev = data;
 	struct openflash_queue *queue = &ofdev->queues[1];
 	struct openflash_completion *cqe;
+	struct openflash_request *request;
+	struct request *rq;
+	u16 cid;
 	u16 flags;
 	int completed = 0;
 
@@ -68,6 +89,25 @@ static irqreturn_t openflash_io_irq(int irq, void *data)
 		if ((flags & OPENFLASH_CQE_PHASE) != queue->cq_phase)
 			break;
 		dma_rmb();
+		cid = le16_to_cpu(cqe->cid);
+		if (!cid || cid > queue->depth - 1) {
+			dev_err_ratelimited(&ofdev->pdev->dev,
+					    "invalid I/O completion CID %u\n", cid);
+		} else {
+			request = &queue->requests[cid - 1];
+			rq = xchg(&request->rq, NULL);
+			if (!rq) {
+				dev_err_ratelimited(&ofdev->pdev->dev,
+						    "stale I/O completion CID %u\n", cid);
+			} else {
+				if (request->dma_len)
+					dma_unmap_page(&ofdev->pdev->dev, request->dma,
+						       request->dma_len, request->dma_dir);
+				request->dma_len = 0;
+				blk_mq_end_request(rq,
+					openflash_blk_status(le16_to_cpu(cqe->status)));
+			}
+		}
 		queue->cq_head = (queue->cq_head + 1) % queue->depth;
 		if (!queue->cq_head)
 			queue->cq_phase ^= OPENFLASH_CQE_PHASE;
@@ -239,6 +279,12 @@ int openflash_setup_io_queue(struct openflash_dev *ofdev)
 		ret = -ENOMEM;
 		goto free_sq;
 	}
+	queue->requests = devm_kcalloc(&pdev->dev, queue->depth - 1,
+					 sizeof(*queue->requests), GFP_KERNEL);
+	if (!queue->requests) {
+		ret = -ENOMEM;
+		goto free_cq;
+	}
 	ret = request_irq(pci_irq_vector(pdev, 1), openflash_io_irq, 0,
 			  OPENFLASH_DRV_NAME "-io", ofdev);
 	if (ret)
@@ -281,6 +327,29 @@ void openflash_teardown_io_queue(struct openflash_dev *ofdev)
 	dma_free_coherent(&pdev->dev, queue->depth * sizeof(*queue->sq_cmds),
 			  queue->sq_cmds, queue->sq_dma);
 	ofdev->nr_queues = 1;
+}
+
+void openflash_fail_io_requests(struct openflash_dev *ofdev, blk_status_t status)
+{
+	struct openflash_queue *queue = &ofdev->queues[1];
+	struct openflash_request *request;
+	struct request *rq;
+	u16 tag;
+
+	if (ofdev->nr_queues < 2)
+		return;
+	synchronize_irq(pci_irq_vector(ofdev->pdev, 1));
+	for (tag = 0; tag < queue->depth - 1; tag++) {
+		request = &queue->requests[tag];
+		rq = xchg(&request->rq, NULL);
+		if (!rq)
+			continue;
+		if (request->dma_len)
+			dma_unmap_page(&ofdev->pdev->dev, request->dma,
+				       request->dma_len, request->dma_dir);
+		request->dma_len = 0;
+		blk_mq_end_request(rq, status);
+	}
 }
 
 void openflash_teardown_admin_queue(struct openflash_dev *ofdev)

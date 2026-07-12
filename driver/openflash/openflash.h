@@ -3,6 +3,8 @@
 #define _OPENFLASH_H_
 
 #include <linux/pci.h>
+#include <linux/blk-mq.h>
+#include <linux/blkdev.h>
 #include <linux/completion.h>
 #include <linux/mutex.h>
 #include <linux/spinlock.h>
@@ -13,6 +15,15 @@
 #define OPENFLASH_DRV_NAME "openflash"
 #define OPENFLASH_MAX_QUEUES 64
 #define OPENFLASH_DEFAULT_Q_DEPTH 128
+#define OPENFLASH_BLOCK_SIZE 4096
+#define OPENFLASH_SECTORS_PER_BLOCK (OPENFLASH_BLOCK_SIZE >> SECTOR_SHIFT)
+
+struct openflash_request {
+	struct request *rq;
+	dma_addr_t dma;
+	unsigned int dma_len;
+	enum dma_data_direction dma_dir;
+};
 
 struct openflash_queue {
 	/* Serializes SQ descriptor writes and tail publication for this queue. */
@@ -29,6 +40,7 @@ struct openflash_queue {
 	u16 cq_head;
 	u8 cq_phase;
 	u16 next_cid;
+	struct openflash_request *requests;
 	struct completion admin_done;
 	u16 admin_cid;
 	u16 admin_status;
@@ -44,12 +56,17 @@ struct openflash_dev {
 	u16 nr_queues;
 	u16 queue_depth;
 	u64 capacity_blocks;
+	struct blk_mq_tag_set tag_set;
+	struct gendisk *disk;
 };
 
 int openflash_setup_admin_queue(struct openflash_dev *ofdev);
 int openflash_admin_identify(struct openflash_dev *ofdev);
 int openflash_setup_io_queue(struct openflash_dev *ofdev);
 void openflash_teardown_io_queue(struct openflash_dev *ofdev);
+void openflash_fail_io_requests(struct openflash_dev *ofdev, blk_status_t status);
+int openflash_register_block_device(struct openflash_dev *ofdev);
+void openflash_unregister_block_device(struct openflash_dev *ofdev);
 void openflash_teardown_admin_queue(struct openflash_dev *ofdev);
 
 #endif /* _OPENFLASH_H_ */
