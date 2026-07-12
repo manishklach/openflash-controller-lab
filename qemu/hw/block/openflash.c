@@ -197,7 +197,7 @@ static uint16_t openflash_execute(OpenFlashState *s, OpenFlashCommand *cmd,
             return OF_SC_INVALID_FIELD;
         }
         queue = &s->queues[qid];
-        queue->sq_addr = dma;
+        queue->sq_addr = le64_to_cpu(cmd->data_addr);
         queue->cq_addr = le64_to_cpu(cmd->metadata_addr);
         queue->depth = nblocks;
         queue->sq_head = 0;
