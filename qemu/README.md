@@ -50,6 +50,8 @@ in an isolated compatibility commit.
 
 - QTest DMA command execution, malformed-command, queue-wrap, and MSI-X delivery cases.
 - Separate admin and per-CPU I/O queue creation/deletion.
-- File-backed storage with flush/FUA and migration semantics.
+- Optional `backing-file` persistence for flush/FUA, power-cycle QTests, and migration
+  semantics. The current backing implementation is an experimental whole-image checkpoint,
+  not a production crash-consistency design.
 - DMA error handling, interrupt masking/coalescing, and explicit fault injection.
 - QEMU coding-style and sanitizer runs against the pinned upstream revision.

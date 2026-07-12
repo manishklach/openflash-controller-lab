@@ -113,6 +113,7 @@ struct OpenFlashState {
     uint32_t status;
     uint64_t capacity;
     uint8_t *storage;
+    char *backing_file;
 };
 
 static void openflash_reset(DeviceState *dev)
@@ -173,6 +174,23 @@ static bool openflash_transfer(OpenFlashState *s, OpenFlashCommand *cmd,
     return transferred == length;
 }
 
+static bool openflash_persist(OpenFlashState *s)
+{
+    GError *error = NULL;
+
+    if (!s->backing_file) {
+        return true;
+    }
+    if (g_file_set_contents(s->backing_file, (const char *)s->storage,
+                            s->capacity, &error)) {
+        return true;
+    }
+    qemu_log_mask(LOG_GUEST_ERROR, "openflash: cannot persist backing file: %s\n",
+                  error->message);
+    g_error_free(error);
+    return false;
+}
+
 static uint16_t openflash_execute(OpenFlashState *s, OpenFlashCommand *cmd,
                                   uint64_t *result)
 {
@@ -211,7 +229,7 @@ static uint16_t openflash_execute(OpenFlashState *s, OpenFlashCommand *cmd,
         return OF_SC_SUCCESS;
     }
     if (cmd->opcode == OF_OP_FLUSH) {
-        return OF_SC_SUCCESS;
+        return openflash_persist(s) ? OF_SC_SUCCESS : OF_SC_INTERNAL;
     }
     if (!nblocks) {
         return OF_SC_INVALID_FIELD;
@@ -228,6 +246,9 @@ static uint16_t openflash_execute(OpenFlashState *s, OpenFlashCommand *cmd,
     case OF_OP_WRITE:
         if (!openflash_transfer(s, cmd, offset, length, true)) {
             return OF_SC_INVALID_FIELD;
+        }
+        if ((cmd->flags & OF_CMD_F_FUA) && !openflash_persist(s)) {
+            return OF_SC_INTERNAL;
         }
         break;
     case OF_OP_DISCARD:
@@ -360,12 +381,34 @@ static const MemoryRegionOps openflash_mmio_ops = {
 static void openflash_realize(PCIDevice *pdev, Error **errp)
 {
     OpenFlashState *s = OPENFLASH(pdev);
+    gchar *contents = NULL;
+    gsize length;
 
     if (s->capacity < OF_BLOCK_SIZE || s->capacity % OF_BLOCK_SIZE) {
         error_setg(errp, "capacity must be a positive multiple of %u", OF_BLOCK_SIZE);
         return;
     }
     s->storage = g_malloc0(s->capacity);
+    if (s->backing_file && g_file_test(s->backing_file, G_FILE_TEST_EXISTS)) {
+        GError *error = NULL;
+
+        if (!g_file_get_contents(s->backing_file, &contents, &length, &error)) {
+            error_setg(errp, "cannot load backing file: %s", error->message);
+            g_error_free(error);
+            g_free(s->storage);
+            s->storage = NULL;
+            return;
+        }
+        if (length != s->capacity) {
+            error_setg(errp, "backing file must be exactly %" PRIu64 " bytes", s->capacity);
+            g_free(contents);
+            g_free(s->storage);
+            s->storage = NULL;
+            return;
+        }
+        memcpy(s->storage, contents, s->capacity);
+        g_free(contents);
+    }
     memory_region_init_io(&s->mmio, OBJECT(s), &openflash_mmio_ops, s,
                           "openflash-mmio", OF_BAR_SIZE);
     pci_register_bar(pdev, 0, PCI_BASE_ADDRESS_SPACE_MEMORY, &s->mmio);
@@ -390,6 +433,7 @@ static void openflash_exit(PCIDevice *pdev)
 
 static const Property openflash_properties[] = {
     DEFINE_PROP_SIZE("capacity", OpenFlashState, capacity, OF_DEFAULT_CAPACITY),
+    DEFINE_PROP_STRING("backing-file", OpenFlashState, backing_file),
 };
 
 static void openflash_class_init(ObjectClass *klass, const void *data)

@@ -20,6 +20,9 @@ for public milestones while the hardware ABI is versioned independently.
 - Linux `blk-mq` timeout handling that freezes submissions, fails ambiguous I/O, resets
   the controller, and recreates the admin-negotiated I/O queue.
 - Linux capability-gated FUA propagation and block write-cache configuration.
+- Optional QEMU whole-image backing file persisted by FUA and flush commands.
+- Atomic simulator FTL checkpoint journal/recovery and a documented Micron SLC timing profile.
+- Contributor workflow and public roadmap tracking guidance.
 
 ## [0.3.0] - 2026-07-11
 

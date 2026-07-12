@@ -28,8 +28,10 @@ and scheduling that protects latency-sensitive reads without starving writes.
 | Program latency | 550 us | Model distribution, not only mean |
 | Erase latency | 3.5 ms | Background and preemptible policy |
 
-The constants are hypotheses. They must be replaced by the target NAND datasheet and
-bench measurements before RTL sizing.
+The default constants are hypotheses. The repository now includes a named Micron SLC timing
+profile using published 35 us read, 350 us program, and 1.5 ms erase values; see
+[`CALIBRATION.md`](CALIBRATION.md). Geometry, error distributions, and workload-dependent
+latency still require a selected-part datasheet and measurements before RTL sizing.
 
 ## Scheduling contract
 
@@ -44,8 +46,9 @@ configured read burst while writes are waiting. The production policy should add
 
 ## FTL contract
 
-Milestone 1 uses full page mapping and deterministic striping. The production FTL needs
-a persistent mapping journal, checkpoint/replay, over-provisioning, victim selection,
+The simulator now supports an atomic checkpoint journal and recovery of mapping/allocation
+state. The production controller FTL still needs a persistent mapping journal with replay,
+over-provisioning, victim selection,
 wear leveling, hot/cold separation, TRIM, bad-block retirement, and atomic metadata
 updates. No host completion may be reported before the relevant durability contract is
 satisfied.
@@ -66,4 +69,3 @@ Every optimization is compared against a pinned configuration and seed. Report b
 IOPS, p50/p95/p99/p99.9 latency, write amplification, GC duty cycle, channel utilization,
 ECC retries, CPU/request, and recovery time. A throughput win that violates the selected
 tail-latency or durability gate is a regression.
-

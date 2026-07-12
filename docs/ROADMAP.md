@@ -11,7 +11,8 @@ Deliverables:
 - [x] page mapping, overwrite invalidation, and capacity checks;
 - [x] FIFO and starvation-bounded read-priority policies;
 - [x] reproducible workloads and machine-readable metrics;
-- [ ] latency distributions from a real NAND part;
+- [x] named Micron SLC timing profile grounded in published array timing;
+- [ ] latency distributions from a real NAND part under measured workloads;
 - [x] live-page GC, erase wear, latency variation, ECC retries, and telemetry;
 - [x] JSONL trace replay;
 - [ ] over-provisioning, multi-plane/cache-read eligibility, and blktrace conversion.
@@ -65,7 +66,8 @@ Deliverables:
 - [ ] firmware command processor and scheduler with bounded execution time;
 - [ ] ONFI channel engine, timing calibration, multi-plane/cache operations;
 - [ ] ECC pipeline and retry policy characterized across retention/endurance corners;
-- [ ] persistent FTL journal, checkpoint, recovery, GC, wear leveling, bad-block policy;
+- [x] atomic simulator FTL checkpoint journal and mapping recovery;
+- [ ] persistent controller FTL journal, checkpoint recovery, wear leveling, and bad-block policy;
 - [ ] SRAM/DRAM sizing from measured working sets;
 - [ ] power-loss and metadata corruption test rig;
 - [ ] production telemetry, secure boot/update, and rollback.

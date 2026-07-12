@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from dataclasses import dataclass
+from typing import Any
 
 from .model import ControllerConfig, PhysicalPage
 
@@ -113,6 +114,46 @@ class PageMappingFTL:
         count = self.erase_counts[self._block_key(physical)]
         return min(1.0, count / self.config.max_erase_cycles)
 
+    def checkpoint(self) -> dict[str, Any]:
+        """Return complete mapping/allocation state suitable for an atomic journal."""
+
+        return {
+            "next_page": self._next_page,
+            "mapping": {str(lpn): _encode_page(page) for lpn, page in self.mapping.items()},
+            "invalid_pages": {"/".join(map(str, key)): value for key, value in self.invalid_pages.items()},
+            "valid_lpns": {
+                "/".join(map(str, key)): sorted(value) for key, value in self.valid_lpns.items()
+            },
+            "erase_counts": {"/".join(map(str, key)): value for key, value in self.erase_counts.items()},
+            "reclaimed": [_encode_page(page) for page in self._reclaimed],
+        }
+
+    @classmethod
+    def recover(cls, config: ControllerConfig, checkpoint: dict[str, Any]) -> PageMappingFTL:
+        """Rebuild an FTL from a checkpoint and reject geometry-invalid allocation state."""
+
+        ftl = cls(config)
+        try:
+            ftl._next_page = int(checkpoint["next_page"])
+            ftl.mapping = {
+                int(lpn): PhysicalPage(*page) for lpn, page in checkpoint["mapping"].items()
+            }
+            ftl.invalid_pages = defaultdict(
+                int, {_decode_block(key): int(value) for key, value in checkpoint["invalid_pages"].items()}
+            )
+            ftl.valid_lpns = defaultdict(
+                set, {_decode_block(key): set(value) for key, value in checkpoint["valid_lpns"].items()}
+            )
+            ftl.erase_counts = defaultdict(
+                int, {_decode_block(key): int(value) for key, value in checkpoint["erase_counts"].items()}
+            )
+            ftl._reclaimed = deque(PhysicalPage(*page) for page in checkpoint["reclaimed"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError("invalid OpenFlash FTL checkpoint") from error
+        if not 0 <= ftl._next_page <= ftl.capacity_pages:
+            raise ValueError("checkpoint allocation cursor exceeds FTL capacity")
+        return ftl
+
     def _allocate(self, avoid: tuple[int, int, int] | None = None) -> PhysicalPage:
         for _ in range(len(self._reclaimed)):
             physical = self._reclaimed.popleft()
@@ -139,3 +180,11 @@ class PageMappingFTL:
     def _block_key(physical: PhysicalPage) -> tuple[int, int, int]:
         return physical.channel, physical.die, physical.block
 
+
+def _decode_block(value: str) -> tuple[int, int, int]:
+    channel, die, block = value.split("/")
+    return int(channel), int(die), int(block)
+
+
+def _encode_page(page: PhysicalPage) -> list[int]:
+    return [page.channel, page.die, page.block, page.page]
