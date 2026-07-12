@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="OpenFlash Controller Lab: an executable NAND controller and Linux host-stack systems laboratory.">
+  <title>OpenFlash Controller Lab</title>
+  <style>
+    :root { --ink:#12201e; --muted:#5b6964; --paper:#f4f1e7; --panel:#fffdf7; --green:#135d4f; --lime:#b8dc62; --orange:#ec7f3c; --line:#d9d4c6; --night:#102b29; }
+    * { box-sizing:border-box; } html { scroll-behavior:smooth; } body { margin:0; color:var(--ink); background:var(--paper); font:16px/1.55 Georgia, "Iowan Old Style", serif; }
+    a { color:inherit; text-decoration-thickness:1px; text-underline-offset:3px; } .mono, code { font-family:"SFMono-Regular", Consolas, monospace; }
+    .hero { color:#fffdf4; background:radial-gradient(circle at 82% 18%, #377c69 0 9%, transparent 32%), linear-gradient(120deg, #0a2624 0%, #144b43 58%, #1a6154 100%); overflow:hidden; }
+    .hero-inner, main, footer { width:min(1120px, calc(100% - 40px)); margin:auto; } nav { display:flex; justify-content:space-between; align-items:center; padding:22px 0; font:600 12px/1.2 "SFMono-Regular", Consolas, monospace; letter-spacing:.08em; text-transform:uppercase; } nav a { text-decoration:none; } nav .links { display:flex; gap:20px; color:#d8e8d9; }
+    .hero-copy { padding:78px 0 92px; max-width:800px; } .eyebrow { display:inline-block; padding:6px 10px; border:1px solid #96bca9; border-radius:999px; font:700 11px/1 "SFMono-Regular", Consolas, monospace; letter-spacing:.1em; text-transform:uppercase; color:#d7ecb3; }
+    h1 { margin:18px 0 18px; font-size:clamp(3rem, 8vw, 6.5rem); line-height:.91; letter-spacing:-.065em; font-weight:500; } .hero p { max-width:660px; color:#d4e1d7; font-size:1.25rem; } .actions { display:flex; flex-wrap:wrap; gap:12px; margin-top:30px; } .button { display:inline-block; padding:11px 16px; border-radius:4px; text-decoration:none; font:700 13px/1 "SFMono-Regular", Consolas, monospace; } .primary { color:#15342e; background:var(--lime); } .secondary { color:#fffdf4; border:1px solid #88a99b; }
+    main { padding:62px 0 80px; } section { margin:0 0 82px; } h2 { margin:0 0 16px; font-size:clamp(2rem, 4vw, 3.3rem); line-height:1; letter-spacing:-.045em; font-weight:500; } .lede { max-width:760px; color:var(--muted); font-size:1.13rem; }
+    .status { display:grid; grid-template-columns:repeat(4,1fr); margin:36px 0; border:1px solid var(--line); background:var(--panel); } .stat { min-height:128px; padding:20px; border-right:1px solid var(--line); } .stat:last-child { border:0; } .stat b { display:block; color:var(--green); font:700 2rem/1 "SFMono-Regular", Consolas, monospace; } .stat span { color:var(--muted); font-size:.9rem; }
+    .architecture { display:grid; grid-template-columns:1.15fr .85fr; gap:30px; align-items:stretch; } .flow { padding:28px; color:#dceee2; background:var(--night); border-radius:8px; } .node { padding:13px 14px; margin:8px 0; border-left:3px solid var(--lime); background:rgba(255,255,255,.06); font:600 14px/1.25 "SFMono-Regular", Consolas, monospace; } .node:nth-child(2n) { margin-left:8%; border-color:var(--orange); } .callout { padding:30px; background:#e5ead8; border-radius:8px; } .callout h3 { margin:0 0 12px; font-size:1.45rem; font-weight:500; }
+    .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; } .card { padding:23px; background:var(--panel); border-top:4px solid var(--green); box-shadow:0 1px 0 rgba(16,43,41,.08); } .card h3 { margin:0 0 9px; font:700 14px/1.2 "SFMono-Regular", Consolas, monospace; } .card p { margin:0; color:var(--muted); font-size:.96rem; }
+    .timeline { border-left:2px solid var(--green); margin:30px 0 0 8px; } .step { position:relative; padding:0 0 29px 26px; } .step:before { content:""; position:absolute; left:-8px; top:3px; width:12px; height:12px; border-radius:50%; background:var(--lime); border:2px solid var(--green); } .step h3 { margin:0 0 5px; font-size:1.15rem; } .step p { margin:0; color:var(--muted); }
+    .warning { padding:24px 26px; border-left:5px solid var(--orange); background:#fff0df; } .warning strong { font-family:"SFMono-Regular", Consolas, monospace; }
+    footer { padding:30px 0 44px; border-top:1px solid var(--line); color:var(--muted); font-size:.9rem; } footer span { color:var(--green); font-family:"SFMono-Regular", Consolas, monospace; }
+    @media (max-width:760px) { .hero-inner, main, footer { width:min(100% - 28px, 1120px); } nav .links { display:none; } .hero-copy { padding:58px 0 65px; } .status, .grid, .architecture { grid-template-columns:1fr; } .stat { border-right:0; border-bottom:1px solid var(--line); } .stat:last-child { border-bottom:0; } }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-inner">
+      <nav><a href="#top">OpenFlash / Lab</a><div class="links"><a href="#system">System</a><a href="#implementation">Implementation</a><a href="#roadmap">Roadmap</a></div></nav>
+      <div class="hero-copy" id="top">
+        <span class="eyebrow">Executable controller architecture</span>
+        <h1>Make NAND fast<br>before making it real.</h1>
+        <p>OpenFlash is a shared laboratory for controller scheduling, flash translation, a PCIe queue ABI, QEMU hardware, and a Linux <span class="mono">blk-mq</span> driver. Ideas become measurable software before they become firmware or RTL.</p>
+        <div class="actions"><a class="button primary" href="https://github.com/manishklach/openflash-controller-lab">Explore the repository</a><a class="button secondary" href="releases/v0.4.0.md">Read v0.4.0 notes</a></div>
+      </div>
+    </div>
+  </header>
+  <main>
+    <section>
+      <h2>One problem, every layer.</h2>
+      <p class="lede">A fast controller is not a fast flash chip. It is coordination: enough outstanding work to hide NAND latency, placement that preserves channel and die parallelism, queues that never lose ownership, and recovery that favors data honesty over optimistic replay.</p>
+      <div class="status"><div class="stat"><b>v0.2</b><span>host/controller ABI</span></div><div class="stat"><b>2</b><span>MSI-X queue vectors</span></div><div class="stat"><b>16</b><span>DMA segments per request</span></div><div class="stat"><b>22</b><span>Python tests in CI</span></div></div>
+    </section>
+    <section id="system">
+      <h2>The working system.</h2>
+      <div class="architecture"><div class="flow"><div class="node">Application / fio</div><div class="node">Linux block layer + blk-mq</div><div class="node">OpenFlash PCI driver</div><div class="node">DMA SQ/CQ + MSI-X</div><div class="node">QEMU controller / firmware model</div><div class="node">Scheduler, FTL, channels, dies, ECC</div></div><aside class="callout"><h3>Performance thesis</h3><p>NAND latency is mostly hidden, not removed. The controller wins by keeping independent dies busy while guarding tail latency, write amplification, wear, ECC retries, and recovery correctness.</p><p><a href="ARCHITECTURE.md">Read the architecture contract</a></p></aside></div>
+    </section>
+    <section id="implementation">
+      <h2>What is implemented today.</h2>
+      <div class="grid"><article class="card"><h3>SIMULATOR + FTL</h3><p>Deterministic channel/die timing, page mapping, GC, wear, ECC retry, trace replay, and reproducible scheduling experiments.</p></article><article class="card"><h3>QUEUE TRANSPORT</h3><p>64-byte little-endian descriptors, phase tags, coherent DMA rings, admin queue negotiation, queue-local doorbells, and MSI-X.</p></article><article class="card"><h3>LINUX DATA PATH</h3><p>An experimental <span class="mono">/dev/openflash0</span> uses blk-mq, tag-owned completions, SGL DMA mapping, read/write/flush/discard, and timeout reset recovery.</p></article></div>
+      <div class="warning" style="margin-top:28px"><strong>Experimental boundary.</strong> QEMU media is RAM-backed. Linux FUA and durable flush guarantees are not implemented. Timed-out commands are failed, never replayed, because media execution cannot be proven. Do not store valuable data here.</div>
+    </section>
+    <section id="roadmap">
+      <h2>The path to a controller.</h2>
+      <div class="timeline"><div class="step"><h3>Validated software transport</h3><p>ABI v0.2, SGL DMA, QEMU controller, Linux blk-mq data path, and timeout-driven reset recovery.</p></div><div class="step"><h3>Correctness and durability</h3><p>FUA and durable flush semantics, command abort, fault injection, reset test images, telemetry, and fio verification.</p></div><div class="step"><h3>Scale and measure</h3><p>Per-CPU queues, interrupt groups, queue-depth scaling, CPU/request profiling, and latency gates under GC pressure.</p></div><div class="step"><h3>Firmware and RTL</h3><p>Persistent FTL metadata, ECC characterization, ONFI channel engines, power-loss testing, and an FPGA scheduler/testbench.</p></div></div>
+      <p><a href="ROADMAP.md">See the detailed implementation roadmap</a> · <a href="ABI.md">Read the ABI specification</a></p>
+    </section>
+  </main>
+  <footer><span>OPENFLASH CONTROLLER LAB</span> · Apache-2.0 for the lab, GPL-2.0-only for the Linux driver · Built for measurable systems work.</footer>
+</body>
+</html>
