@@ -3,6 +3,7 @@
 #define _OPENFLASH_H_
 
 #include <linux/pci.h>
+#include <linux/completion.h>
 #include <linux/mutex.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
@@ -28,6 +29,12 @@ struct openflash_queue {
 	u16 cq_head;
 	u8 cq_phase;
 	u16 next_cid;
+	struct completion admin_done;
+	u16 admin_cid;
+	u16 admin_status;
+	u64 admin_result;
+	int admin_error;
+	bool admin_pending;
 };
 
 struct openflash_dev {

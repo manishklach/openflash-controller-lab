@@ -11,6 +11,8 @@ for public milestones while the hardware ABI is versioned independently.
 - Linux synchronous identify submission, phase-tag validation, and capacity discovery.
 - Reusable Linux admin command submission with CIDs and SQ/CQ wrap handling.
 - QTests for PCI discovery, lifecycle/reset, capabilities, and queue register validation.
+- DMA QTests for identify, MSI-X, data integrity, discard, errors, and phase wrap.
+- Interrupt-driven Linux admin completion draining with timeout synchronization.
 
 ## [0.3.0] - 2026-07-11
 

@@ -37,6 +37,7 @@ Deliverables:
 - [x] QTests for discovery, ABI/capabilities, enable/reset, and queue register validation;
 - [x] synchronous Linux identify command with phase validation and capacity discovery;
 - [x] reusable serialized admin submission with CID checks and ring/phase wrap handling;
+- [x] interrupt-driven admin CQ draining with timeout/IRQ synchronization;
 - [ ] multiple QEMU I/O queues, QTests, persistent backing, and fault injection;
 - [ ] `blk-mq` request path with one queue per CPU/MSI-X vector group;
 - [ ] timeout, abort, reset, hot-unplug, suspend/resume, and telemetry paths;

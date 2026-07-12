@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/dma-mapping.h>
-#include <linux/delay.h>
 #include <linux/iopoll.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
@@ -8,14 +7,51 @@
 
 #include "openflash.h"
 
+static int openflash_drain_admin_cq(struct openflash_dev *ofdev)
+{
+	struct openflash_queue *queue = &ofdev->queues[0];
+	struct openflash_completion *cqe;
+	u16 flags;
+	u16 cid;
+	int completed = 0;
+
+	for (;;) {
+		cqe = &queue->cqes[queue->cq_head];
+		flags = le16_to_cpu(READ_ONCE(cqe->flags));
+		if ((flags & OPENFLASH_CQE_PHASE) != queue->cq_phase)
+			break;
+		dma_rmb();
+		cid = le16_to_cpu(cqe->cid);
+		if (READ_ONCE(queue->admin_pending)) {
+			if (cid == queue->admin_cid) {
+				queue->admin_status = le16_to_cpu(cqe->status);
+				queue->admin_result = le64_to_cpu(cqe->result);
+				queue->admin_error = 0;
+			} else {
+				queue->admin_error = -EIO;
+			}
+			WRITE_ONCE(queue->admin_pending, false);
+			complete(&queue->admin_done);
+		}
+
+		queue->cq_head = (queue->cq_head + 1) % queue->depth;
+		if (!queue->cq_head)
+			queue->cq_phase ^= OPENFLASH_CQE_PHASE;
+		completed++;
+	}
+	if (completed)
+		writel(queue->cq_head,
+		       ofdev->bar + OPENFLASH_CQ_HEAD_DB(queue->qid));
+	return completed;
+}
+
 static irqreturn_t openflash_irq(int irq, void *data)
 {
 	struct openflash_dev *ofdev = data;
 
-	/* Completion draining is enabled when admin command submission lands. */
 	if (!(readl(ofdev->bar + OPENFLASH_REG_STATUS) & OPENFLASH_STATUS_READY))
 		return IRQ_NONE;
-	return IRQ_HANDLED;
+	return openflash_drain_admin_cq(ofdev) ? IRQ_HANDLED : IRQ_NONE;
 }
 
 int openflash_setup_admin_queue(struct openflash_dev *ofdev)
@@ -35,6 +71,7 @@ int openflash_setup_admin_queue(struct openflash_dev *ofdev)
 	queue->cq_phase = 1;
 	spin_lock_init(&queue->sq_lock);
 	mutex_init(&queue->admin_lock);
+	init_completion(&queue->admin_done);
 
 	sq_size = queue->depth * sizeof(*queue->sq_cmds);
 	cq_size = queue->depth * sizeof(*queue->cqes);
@@ -90,24 +127,21 @@ static int openflash_admin_command(struct openflash_dev *ofdev,
 				   struct openflash_command *cmd, u64 *result)
 {
 	struct openflash_queue *queue = &ofdev->queues[0];
-	struct openflash_completion *cqe;
-	unsigned long timeout = jiffies + msecs_to_jiffies(500);
-	u16 cq_slot;
-	u16 flags;
 	u16 cid;
 	u16 sq_slot;
-	u16 status;
 	int ret = 0;
 
 	mutex_lock(&queue->admin_lock);
 	sq_slot = queue->sq_tail;
-	cq_slot = queue->cq_head;
-	cqe = &queue->cqes[cq_slot];
 	cid = ++queue->next_cid;
 	if (!cid)
 		cid = ++queue->next_cid;
 	cmd->qid = cpu_to_le16(queue->qid);
 	cmd->cid = cpu_to_le16(cid);
+	reinit_completion(&queue->admin_done);
+	queue->admin_cid = cid;
+	queue->admin_error = 0;
+	WRITE_ONCE(queue->admin_pending, true);
 	memcpy(&queue->sq_cmds[sq_slot], cmd, sizeof(*cmd));
 
 	/* The command must be globally visible before publishing the new SQ tail. */
@@ -115,35 +149,23 @@ static int openflash_admin_command(struct openflash_dev *ofdev,
 	queue->sq_tail = (queue->sq_tail + 1) % queue->depth;
 	writel(queue->sq_tail, ofdev->bar + OPENFLASH_SQ_TAIL_DB(queue->qid));
 
-	do {
-		flags = le16_to_cpu(READ_ONCE(cqe->flags));
-		if ((flags & OPENFLASH_CQE_PHASE) == queue->cq_phase)
-			break;
-		usleep_range(50, 100);
-	} while (time_before(jiffies, timeout));
-	if ((flags & OPENFLASH_CQE_PHASE) != queue->cq_phase) {
+	if (!wait_for_completion_timeout(&queue->admin_done,
+					 msecs_to_jiffies(500))) {
+		WRITE_ONCE(queue->admin_pending, false);
+		synchronize_irq(pci_irq_vector(ofdev->pdev, 0));
 		ret = -ETIMEDOUT;
 		goto unlock;
 	}
-
-	/* Phase ownership transfers every completion field to the host. */
-	dma_rmb();
-	if (le16_to_cpu(cqe->cid) != cid) {
-		ret = -EIO;
+	if (queue->admin_error) {
+		ret = queue->admin_error;
 		goto unlock;
 	}
-	status = le16_to_cpu(cqe->status);
-	if (status != OPENFLASH_SC_SUCCESS) {
+	if (queue->admin_status != OPENFLASH_SC_SUCCESS) {
 		ret = -EIO;
 		goto unlock;
 	}
 	if (result)
-		*result = le64_to_cpu(cqe->result);
-
-	queue->cq_head = (queue->cq_head + 1) % queue->depth;
-	if (!queue->cq_head)
-		queue->cq_phase ^= OPENFLASH_CQE_PHASE;
-	writel(queue->cq_head, ofdev->bar + OPENFLASH_CQ_HEAD_DB(queue->qid));
+		*result = queue->admin_result;
 unlock:
 	mutex_unlock(&queue->admin_lock);
 	return ret;
