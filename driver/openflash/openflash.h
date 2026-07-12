@@ -58,6 +58,7 @@ struct openflash_dev {
 	u16 nr_queues;
 	u16 queue_depth;
 	u64 capacity_blocks;
+	u64 capabilities;
 	struct blk_mq_tag_set tag_set;
 	struct gendisk *disk;
 	struct work_struct reset_work;

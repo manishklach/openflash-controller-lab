@@ -50,6 +50,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(OpenFlashState, OPENFLASH)
 #define OF_SC_INVALID_FIELD     2
 #define OF_SC_LBA_RANGE         3
 
+#define OF_CMD_F_FUA            BIT(0)
 #define OF_CMD_F_SGL            BIT(1)
 #define OF_MAX_SGL_ENTRIES      16
 

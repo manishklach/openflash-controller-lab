@@ -40,6 +40,11 @@ length entries, more than 16 entries, and lists whose aggregate length is not ex
 `nblocks * 4096`. This leaves command and completion layouts unchanged while enabling
 multi-page Linux block requests.
 
+`CMD_F_FUA` is valid for writes only and requests a completion only after the controller's
+advertised durable-write contract is met. Hosts must issue it only when `CAP_FUA` is set.
+Flush commands order earlier writes on the same queue and complete after the advertised
+durability contract is met.
+
 ## Evolution rules
 
 - Major-version mismatch is fatal; minor versions add backwards-compatible features.

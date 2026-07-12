@@ -19,6 +19,7 @@ for public milestones while the hardware ABI is versioned independently.
 - QEMU SGL validation and a two-segment DMA read/write QTest.
 - Linux `blk-mq` timeout handling that freezes submissions, fails ambiguous I/O, resets
   the controller, and recreates the admin-negotiated I/O queue.
+- Linux capability-gated FUA propagation and block write-cache configuration.
 
 ## [0.3.0] - 2026-07-11
 

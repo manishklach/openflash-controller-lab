@@ -44,7 +44,8 @@ Deliverables:
 - [ ] scale `blk-mq` queues per CPU/MSI-X vector group;
 - [x] timeout-driven reset that fails ambiguous I/O and recreates queue transport;
 - [ ] command abort, hot-unplug, suspend/resume, and telemetry paths;
-- [ ] discard, flush/FUA, and durability semantics;
+- [x] discard, flush/FUA command transport and capability-gated Linux FUA submission;
+- [ ] persistent-media validation of flush/FUA durability semantics;
 - [ ] KUnit tests and a QEMU integration test image.
 
 Acceptance gates:

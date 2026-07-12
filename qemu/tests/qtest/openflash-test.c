@@ -32,6 +32,7 @@
 #define OF_OP_READ               0x01
 #define OF_OP_WRITE              0x02
 #define OF_OP_DISCARD            0x04
+#define OF_CMD_F_FUA             BIT(0)
 #define OF_CMD_F_SGL             BIT(1)
 #define OF_ADMIN_IDENTIFY        0x80
 #define OF_ADMIN_CREATE_IOQ      0x81
@@ -224,6 +225,7 @@ static void test_data_path(OpenFlashFixture *f, gconstpointer data)
     openflash_configure_queue(f, 8);
 
     cmd.opcode = OF_OP_WRITE;
+    cmd.flags = OF_CMD_F_FUA;
     cmd.cid = cpu_to_le16(1);
     cmd.lba = cpu_to_le64(4);
     cmd.nblocks = cpu_to_le32(1);

@@ -48,7 +48,7 @@
     <section id="implementation">
       <h2>What is implemented today.</h2>
       <div class="grid"><article class="card"><h3>SIMULATOR + FTL</h3><p>Deterministic channel/die timing, page mapping, GC, wear, ECC retry, trace replay, and reproducible scheduling experiments.</p></article><article class="card"><h3>QUEUE TRANSPORT</h3><p>64-byte little-endian descriptors, phase tags, coherent DMA rings, admin queue negotiation, queue-local doorbells, and MSI-X.</p></article><article class="card"><h3>LINUX DATA PATH</h3><p>An experimental <span class="mono">/dev/openflash0</span> uses blk-mq, tag-owned completions, SGL DMA mapping, read/write/flush/discard, and timeout reset recovery.</p></article></div>
-      <div class="warning" style="margin-top:28px"><strong>Experimental boundary.</strong> QEMU media is RAM-backed. Linux FUA and durable flush guarantees are not implemented. Timed-out commands are failed, never replayed, because media execution cannot be proven. Do not store valuable data here.</div>
+      <div class="warning" style="margin-top:28px"><strong>Experimental boundary.</strong> Linux propagates capability-gated FUA and flush commands, but QEMU media is RAM-backed, so power-loss durability is not validated. Timed-out commands are failed, never replayed, because media execution cannot be proven. Do not store valuable data here.</div>
     </section>
     <section id="roadmap">
       <h2>The path to a controller.</h2>

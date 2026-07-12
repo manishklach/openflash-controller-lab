@@ -93,6 +93,8 @@ struct openflash_completion {
 
 #define OPENFLASH_CQE_PHASE	BIT(0)
 
+/* Write data and required metadata are durable before an FUA completion. */
+#define OPENFLASH_CMD_F_FUA	BIT(0)
 /* ABI v0.2: data_addr points to an SGL and control[15:0] is its entry count. */
 #define OPENFLASH_CMD_F_SGL	BIT(1)
 #define OPENFLASH_SGL_COUNT_MASK	GENMASK(15, 0)

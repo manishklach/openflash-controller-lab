@@ -65,6 +65,8 @@ static blk_status_t openflash_queue_rq(struct blk_mq_hw_ctx *hctx,
 	if (blk_rq_pos(rq) % OPENFLASH_SECTORS_PER_BLOCK ||
 	    bytes % OPENFLASH_BLOCK_SIZE || cid >= queue->depth)
 		return BLK_STS_IOERR;
+	if ((rq->cmd_flags & REQ_FUA) && req_op(rq) != REQ_OP_WRITE)
+		return BLK_STS_NOTSUPP;
 
 	request = &queue->requests[rq->tag];
 
@@ -119,6 +121,19 @@ submit:
 	cmd->cid = cpu_to_le16(cid);
 	cmd->lba = cpu_to_le64(lba);
 	cmd->nblocks = cpu_to_le32(nblocks);
+	if (rq->cmd_flags & REQ_FUA) {
+		if (!(ofdev->capabilities & OPENFLASH_CAP_FUA)) {
+			spin_unlock_irqrestore(&queue->sq_lock, flags);
+			while (mapped) {
+				mapped--;
+				dma_unmap_page(&ofdev->pdev->dev,
+					le64_to_cpu(request->sgl[mapped].addr),
+					le32_to_cpu(request->sgl[mapped].length), dma_dir);
+			}
+			return BLK_STS_NOTSUPP;
+		}
+		cmd->flags |= OPENFLASH_CMD_F_FUA;
+	}
 	if (mapped) {
 		request->nr_mapped = mapped;
 		request->dma_dir = dma_dir;
@@ -182,6 +197,8 @@ int openflash_register_block_device(struct openflash_dev *ofdev)
 	blk_queue_max_hw_sectors(queue, (ofdev->queue_depth - 1) *
 				 OPENFLASH_SECTORS_PER_BLOCK);
 	blk_queue_max_segments(queue, OPENFLASH_MAX_SGL_ENTRIES);
+	blk_queue_write_cache(queue, !!(ofdev->capabilities & OPENFLASH_CAP_FLUSH),
+			      !!(ofdev->capabilities & OPENFLASH_CAP_FUA));
 	ofdev->disk->major = 0;
 	ofdev->disk->first_minor = 0;
 	ofdev->disk->minors = 1;
@@ -237,6 +254,7 @@ static int openflash_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	ofdev->pdev = pdev;
 	ofdev->bar = pcim_iomap_table(pdev)[0];
 	ofdev->queue_depth = OPENFLASH_DEFAULT_Q_DEPTH;
+	ofdev->capabilities = readq(ofdev->bar + OPENFLASH_REG_CAPABILITIES);
 	INIT_WORK(&ofdev->reset_work, openflash_reset_work);
 	atomic_set(&ofdev->reset_pending, 0);
 	if (readl(ofdev->bar + OPENFLASH_REG_ABI_VERSION) != OPENFLASH_ABI_VERSION)
