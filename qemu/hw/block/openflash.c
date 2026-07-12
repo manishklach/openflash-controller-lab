@@ -259,6 +259,7 @@ static void openflash_realize(PCIDevice *pdev, Error **errp)
         s->storage = NULL;
         return;
     }
+    msix_vector_use(pdev, 0);
     openflash_reset(DEVICE(s));
 }
 
@@ -266,6 +267,7 @@ static void openflash_exit(PCIDevice *pdev)
 {
     OpenFlashState *s = OPENFLASH(pdev);
 
+    msix_unuse_all_vectors(pdev);
     msix_uninit_exclusive_bar(pdev);
     g_free(s->storage);
 }
