@@ -192,7 +192,7 @@ static uint16_t openflash_execute(OpenFlashState *s, OpenFlashCommand *cmd,
         OpenFlashQueue *queue;
 
         if (!qid || qid >= OF_MAX_QUEUES || vector >= OF_MAX_QUEUES ||
-            !nblocks || nblocks > 4096 || !dma ||
+            !nblocks || nblocks > 4096 || !le64_to_cpu(cmd->data_addr) ||
             !le64_to_cpu(cmd->metadata_addr)) {
             return OF_SC_INVALID_FIELD;
         }
