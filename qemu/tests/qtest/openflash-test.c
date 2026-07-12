@@ -185,7 +185,7 @@ static void test_identify_dma_msix(OpenFlashFixture *f, gconstpointer data)
     uint16_t control;
 
     qpci_msix_enable(f->dev);
-    g_assert_cmpuint(qpci_msix_table_size(f->dev), ==, 1);
+    g_assert_cmpuint(qpci_msix_table_size(f->dev), ==, 2);
     capability = qpci_find_capability(f->dev, PCI_CAP_ID_MSIX, 0);
     control = qpci_config_readw(f->dev, capability + PCI_MSIX_FLAGS);
     qpci_config_writew(f->dev, capability + PCI_MSIX_FLAGS,
